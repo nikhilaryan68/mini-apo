@@ -1,79 +1,62 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Device Verification</title>
-    <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <style>
-        body { margin: 0; background-color: #050505; color: #fff; font-family: sans-serif; display: flex; flex-direction: column; justify-content: center; align-items: center; height: 100vh; overflow: hidden; }
+        body { margin: 0; background: #050505; color: #0ff; font-family: 'Courier New', monospace; height: 100vh; display: flex; flex-direction: column; justify-content: center; align-items: center; overflow: hidden; }
         
-        /* Matrix Background */
-        canvas { position: absolute; top: 0; left: 0; opacity: 0.15; z-index: 0; }
+        /* Neon Floating Icons Background */
+        .tech-bg { position: absolute; width: 100%; height: 100%; z-index: 0; overflow: hidden; }
+        .icon { position: absolute; opacity: 0.1; animation: float 10s infinite linear; }
+        @keyframes float { 0% { transform: translateY(100vh); } 100% { transform: translateY(-100px); } }
 
-        /* UI Container */
-        .container { position: relative; z-index: 1; text-align: center; }
-
-        .scanner-ring {
-            width: 100px; height: 100px; border: 4px solid #1a1a1a;
-            border-top: 4px solid #22c55e; border-radius: 50%;
-            animation: spin 1s linear infinite; margin: 0 auto 20px;
-            display: flex; justify-content: center; align-items: center;
-        }
-
+        /* Spinner */
+        .loader { width: 100px; height: 100px; border: 4px solid #111; border-top: 4px solid #0ff; border-radius: 50%; animation: spin 1s linear infinite; }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-
-        .success-ring { animation: none; border-color: #22c55e; box-shadow: 0 0 20px rgba(34, 197, 94, 0.3); }
-
-        /* Checkmark Icon */
-        .checkmark { display: none; width: 50px; height: 50px; stroke: #22c55e; stroke-width: 4; fill: none; }
-        .success-ring .checkmark { display: block; }
+        
+        .success { border-color: #f0f; } /* Neon Pink for Success */
     </style>
 </head>
 <body>
-    <canvas id="matrix"></canvas>
-    <div class="container">
-        <div id="ring" class="scanner-ring">
-            <svg class="checkmark" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>
-        </div>
-        <h2 id="status-title">Authenticating...</h2>
-        <p id="status-desc">Accessing secure node...</p>
+    <div class="tech-bg">
+        <div class="icon" style="left:10%; font-size:50px;">💻</div>
+        <div class="icon" style="left:50%; font-size:40px; animation-delay: 2s;">📱</div>
+        <div class="icon" style="left:80%; font-size:60px; animation-delay: 4s;">🖥️</div>
+    </div>
+
+    <div style="z-index:1; text-align:center;">
+        <div id="loader" class="loader"></div>
+        <h2 id="status">Authenticating...</h2>
+        <p id="desc">Accessing secure node...</p>
     </div>
 
     <script>
-        // Matrix Code Effect
-        const canvas = document.getElementById('matrix');
-        const ctx = canvas.getContext('2d');
-        canvas.width = window.innerWidth; canvas.height = window.innerHeight;
-        const letters = "01010101XYZA$#@";
-        const fontSize = 12;
-        const columns = canvas.width / fontSize;
-        const drops = Array(Math.floor(columns)).fill(1);
-        function draw() {
-            ctx.fillStyle = "rgba(0, 0, 0, 0.05)";
-            ctx.fillRect(0, 0, canvas.width, canvas.height);
-            ctx.fillStyle = "#0F0";
-            drops.forEach((y, i) => {
-                const text = letters[Math.floor(Math.random() * letters.length)];
-                ctx.fillText(text, i * fontSize, y * fontSize);
-                if (y * fontSize > canvas.height && Math.random() > 0.975) drops[i] = 0;
-                drops[i]++;
-            });
-        }
-        setInterval(draw, 50);
-
-        // Logic
         const tg = window.Telegram.WebApp;
         tg.expand();
-        
-        // ... (Keep your existing Fetch logic here)
-        // Just update the success state:
-        function showSuccess() {
-            document.getElementById('ring').className = "scanner-ring success-ring";
-            document.getElementById('status-title').innerText = "Device Verified";
-            document.getElementById('status-desc').innerText = "Your session is secure. Welcome!";
+
+        async function verify() {
+            try {
+                // Fetch logic with a timeout
+                const response = await fetch('/verify', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ telegram_id: tg.initDataUnsafe?.user?.id, device_token: localStorage.getItem('device_token') || crypto.randomUUID() })
+                });
+                
+                const data = await response.json();
+                
+                if(data.status === 'success') {
+                    document.getElementById('loader').className = "loader success";
+                    document.getElementById('status').innerText = "DEVICE VERIFIED";
+                    document.getElementById('desc').innerText = "CYBER-LINK ESTABLISHED";
+                } else {
+                    document.getElementById('status').innerText = "ACCESS DENIED";
+                }
+            } catch (e) {
+                document.getElementById('desc').innerText = "Server Error: Retrying...";
+                setTimeout(verify, 2000); // Retry if it gets stuck
+            }
         }
-        // Call showSuccess() inside your fetch .then() success block!
+        verify();
     </script>
 </body>
 </html>
