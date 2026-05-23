@@ -6,13 +6,13 @@ import json
 
 app = Flask(__name__)
 
-# Shared database path
-DB_PATH = os.getenv("DB_PATH", "/data/task_bot.db")
+# DATABASE PATH
+DB_PATH = "task_bot.db"
 
 BOT_TOKEN = os.getenv('BOT_TOKEN')
 ADMIN_IDS_RAW = os.getenv('ADMIN_IDS', '6197579049')
 
-# Basic storage
+# Temporary memory
 used_devices = {}
 used_ips = {}
 
@@ -38,7 +38,21 @@ def verify_user():
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
 
-        # CHECK USER EXISTS
+        # CREATE TABLE IF NOT EXISTS
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS users (
+                user_id INTEGER PRIMARY KEY,
+                username TEXT,
+                balance REAL DEFAULT 0.0,
+                referred_by INTEGER,
+                upi_id TEXT,
+                is_banned INTEGER DEFAULT 0,
+                device_verified INTEGER DEFAULT 0,
+                device_token TEXT
+            )
+        ''')
+
+        # CHECK USER
         user = cursor.execute(
             "SELECT user_id FROM users WHERE user_id = ?",
             (telegram_id,)
@@ -49,10 +63,10 @@ def verify_user():
 
             return jsonify({
                 "status": "error",
-                "message": "User not found in bot database"
+                "message": "User not found. Start bot first."
             }), 404
 
-        # SAVE DEVICE TOKEN + VERIFY USER
+        # UPDATE VERIFICATION
         cursor.execute(
             """
             UPDATE users
@@ -66,12 +80,12 @@ def verify_user():
         conn.commit()
         conn.close()
 
-        # SEND TELEGRAM MENU
-        send_telegram_menu_debug(telegram_id)
+        # SEND MENU TO USER
+        send_telegram_menu(telegram_id)
 
         return jsonify({
             "status": "success",
-            "message": "Device verified successfully"
+            "message": "Verification successful"
         })
 
     except Exception as e:
@@ -82,7 +96,7 @@ def verify_user():
             "message": str(e)
         }), 500
 
-def send_telegram_menu_debug(telegram_id):
+def send_telegram_menu(telegram_id):
     try:
         if not BOT_TOKEN:
             print("BOT_TOKEN missing")
@@ -107,8 +121,8 @@ def send_telegram_menu_debug(telegram_id):
 
         response = requests.post(url, data=payload)
 
-        print("Telegram Response:", response.status_code)
-        print("Telegram Body:", response.text)
+        print("Telegram Status:", response.status_code)
+        print("Telegram Response:", response.text)
 
     except Exception as e:
         print(f"Telegram send error: {e}")
