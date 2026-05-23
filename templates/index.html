@@ -30,7 +30,6 @@
         .avatar svg { width: 24px; height: 24px; fill: #a78bfa; }
         .details { display: flex; flex-direction: column; }
         
-        /* THIS IS WHERE THE DYNAMIC NAME GOES */
         .name { font-size: 15px; font-weight: 700; color: #ffffff; letter-spacing: 0.5px; text-transform: uppercase; }
         .id { font-size: 11px; color: #8fa0b5; margin-top: 3px; letter-spacing: 1px; }
         
@@ -54,9 +53,8 @@
         
         .card-wrapper {
             position: relative; width: 100%; max-width: 340px; border-radius: 24px;
-            /* The Glowing Border Magic */
             background: linear-gradient(135deg, #0ff, #8b5cf6, #f0f);
-            padding: 2px; /* Thickness of the glowing border */
+            padding: 2px; 
             box-shadow: 0 0 30px rgba(139, 92, 246, 0.3);
         }
         
@@ -266,8 +264,13 @@
                     cardDesc.innerText = "Your device has been successfully verified and secured.";
                     badge.className = "status-badge badge-active";
                     badgeText.innerText = "ACTIVE";
+                    
+                    // Show fallback button just in case
                     continueBtn.style.display = 'block';
                     continueBtn.className = "action-btn btn-success";
+
+                    // Automatically close the webapp after 2 seconds
+                    setTimeout(() => tg.close(), 2000);
                 } 
                 else if (data.status === 'already_verified') {
                     iconAlready.style.display = 'flex';
@@ -276,8 +279,13 @@
                     cardDesc.innerText = "This device has already been authorized for use.";
                     badge.className = "status-badge badge-active";
                     badgeText.innerText = "ACTIVE";
+                    
+                    // Show fallback button just in case
                     continueBtn.style.display = 'block';
                     continueBtn.className = "action-btn btn-already";
+
+                    // Automatically close the webapp after 2 seconds
+                    setTimeout(() => tg.close(), 2000);
                 } 
                 else {
                     iconError.style.display = 'flex';
@@ -286,6 +294,8 @@
                     cardDesc.innerText = data.reason || "This device cannot be used with this account.";
                     badge.className = "status-badge badge-error";
                     badgeText.innerText = "ERROR";
+                    
+                    // Close the app after 5 seconds to give them time to read the ban reason
                     setTimeout(() => tg.close(), 5000);
                 }
 
