@@ -6,81 +6,112 @@ import json
 
 app = Flask(__name__)
 
-# Basic storage
-used_devices = {}
-used_ips = {}
+# Shared database path
+DB_PATH = os.getenv("DB_PATH", "/data/task_bot.db")
 
 BOT_TOKEN = os.getenv('BOT_TOKEN')
 ADMIN_IDS_RAW = os.getenv('ADMIN_IDS', '6197579049')
 
+# Basic storage
+used_devices = {}
+used_ips = {}
+
 @app.route('/')
 def home():
-    return render_template('index.html') 
+    return render_template('index.html')
 
 @app.route('/verify', methods=['POST'])
 def verify_user():
-    data = request.json
-    telegram_id = data.get('telegram_id')
-    device_token = data.get('device_token')
-    
-    conn = sqlite3.connect('task_bot.db')
-    cursor = conn.cursor()
-    
-    # 1. Check if device is taken by someone else
-    cursor.execute("SELECT user_id FROM users WHERE device_token = ? AND device_token IS NOT NULL", (device_token,))
-    existing_owner = cursor.fetchone()
-    
-    if existing_owner and existing_owner[0] != telegram_id:
-        # BAN THIS USER IMMEDIATELY
-        cursor.execute("UPDATE users SET is_banned = 1 WHERE user_id = ?", (telegram_id,))
+    try:
+        data = request.json
+
+        telegram_id = data.get('telegram_id')
+        device_token = data.get('device_token')
+
+        if not telegram_id:
+            return jsonify({
+                "status": "error",
+                "message": "Telegram ID missing"
+            }), 400
+
+        # CONNECT DATABASE
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+
+        # CHECK USER EXISTS
+        user = cursor.execute(
+            "SELECT user_id FROM users WHERE user_id = ?",
+            (telegram_id,)
+        ).fetchone()
+
+        if not user:
+            conn.close()
+
+            return jsonify({
+                "status": "error",
+                "message": "User not found in bot database"
+            }), 404
+
+        # SAVE DEVICE TOKEN + VERIFY USER
+        cursor.execute(
+            """
+            UPDATE users
+            SET device_verified = 1,
+                device_token = ?
+            WHERE user_id = ?
+            """,
+            (device_token, telegram_id)
+        )
+
         conn.commit()
         conn.close()
-        return jsonify({"status": "blocked", "reason": "Access Denied: Device already linked to another account."})
 
-    # 2. Check if this specific user is ALREADY verified
-    cursor.execute("SELECT device_verified, device_token FROM users WHERE user_id = ?", (telegram_id,))
-    user = cursor.fetchone()
-    
-    if user and user[0] == 1:
-        conn.close()
-        send_telegram_menu(telegram_id)
-        return jsonify({"status": "already_verified", "message": "Already verified."})
+        # SEND TELEGRAM MENU
+        send_telegram_menu_debug(telegram_id)
 
-    # 3. New Verification - Register the device
-    cursor.execute("UPDATE users SET device_verified = 1, device_token = ? WHERE user_id = ?", (device_token, telegram_id))
-    conn.commit()
-    conn.close()
-    
-    send_telegram_menu(telegram_id)
-    return jsonify({"status": "success", "message": "Verified."})
+        return jsonify({
+            "status": "success",
+            "message": "Device verified successfully"
+        })
+
+    except Exception as e:
+        print(f"VERIFY ERROR: {e}")
+
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), 500
 
 def send_telegram_menu_debug(telegram_id):
-    if not BOT_TOKEN:
-        print("DEBUG: BOT_TOKEN is missing in Environment Variables!")
-        return
+    try:
+        if not BOT_TOKEN:
+            print("BOT_TOKEN missing")
+            return
 
-    # Prepare Payload
-    reply_keyboard = [
-        [{"text": "📝 Get Task"}],
-        [{"text": "💰 Wallet"}, {"text": "💸 Withdraw"}],
-        [{"text": "👥 Refer & Earn"}, {"text": "📞 Support"}]
-    ]
-    
-    payload = {
-        "chat_id": telegram_id,
-        "text": "✅ Verification Successful! Welcome to the menu.",
-        "reply_markup": json.dumps({
-            "keyboard": reply_keyboard,
-            "resize_keyboard": True
-        })
-    }
-    
-    # Send request and LOG the response
-    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-    response = requests.post(url, data=payload)
-    
-    print(f"DEBUG: Telegram API Response Code: {response.status_code}")
-    print(f"DEBUG: Telegram API Response Body: {response.text}")
+        reply_keyboard = [
+            [{"text": "📝 Get Task"}],
+            [{"text": "💰 Wallet"}, {"text": "💸 Withdraw"}],
+            [{"text": "👥 Refer & Earn"}, {"text": "📞 Support"}]
+        ]
+
+        payload = {
+            "chat_id": telegram_id,
+            "text": "✅ Verification Successful! Welcome to the menu.",
+            "reply_markup": json.dumps({
+                "keyboard": reply_keyboard,
+                "resize_keyboard": True
+            })
+        }
+
+        url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+
+        response = requests.post(url, data=payload)
+
+        print("Telegram Response:", response.status_code)
+        print("Telegram Body:", response.text)
+
+    except Exception as e:
+        print(f"Telegram send error: {e}")
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)
