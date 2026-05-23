@@ -2,129 +2,78 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Device Verification</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <style>
-        /* Modern Dark Theme */
-        body {
-            background-color: #0f172a;
-            color: #f8fafc;
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
-            align-items: center;
-            height: 100vh;
-            margin: 0;
-            overflow: hidden;
-            text-align: center;
-        }
+        body { margin: 0; background-color: #050505; color: #fff; font-family: sans-serif; display: flex; flex-direction: column; justify-content: center; align-items: center; height: 100vh; overflow: hidden; }
+        
+        /* Matrix Background */
+        canvas { position: absolute; top: 0; left: 0; opacity: 0.15; z-index: 0; }
 
-        /* The Spinning Radar Animation */
+        /* UI Container */
+        .container { position: relative; z-index: 1; text-align: center; }
+
         .scanner-ring {
-            width: 80px;
-            height: 80px;
-            border: 4px solid rgba(255, 255, 255, 0.1);
-            border-top: 4px solid #38bdf8; /* Bright Blue */
-            border-right: 4px solid #818cf8; /* Purple/Blue */
-            border-radius: 50%;
-            animation: spin 1s linear infinite;
-            margin-bottom: 20px;
-            box-shadow: 0 0 20px rgba(56, 189, 248, 0.4);
+            width: 100px; height: 100px; border: 4px solid #1a1a1a;
+            border-top: 4px solid #22c55e; border-radius: 50%;
+            animation: spin 1s linear infinite; margin: 0 auto 20px;
+            display: flex; justify-content: center; align-items: center;
         }
 
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
 
-        /* Text Styling */
-        h2 { font-size: 1.5rem; margin: 0 0 10px 0; font-weight: 600; }
-        p { color: #94a3b8; font-size: 0.9rem; margin: 0; padding: 0 20px; }
+        .success-ring { animation: none; border-color: #22c55e; box-shadow: 0 0 20px rgba(34, 197, 94, 0.3); }
 
-        /* Success and Error States */
-        .success-ring { border-color: #22c55e; box-shadow: 0 0 20px rgba(34, 197, 94, 0.4); animation: none; }
-        .error-ring { border-color: #ef4444; box-shadow: 0 0 20px rgba(239, 68, 68, 0.4); animation: none; }
-        .text-success { color: #4ade80; }
-        .text-error { color: #f87171; }
+        /* Checkmark Icon */
+        .checkmark { display: none; width: 50px; height: 50px; stroke: #22c55e; stroke-width: 4; fill: none; }
+        .success-ring .checkmark { display: block; }
     </style>
 </head>
 <body>
-
-    <div id="ring" class="scanner-ring"></div>
-    <h2 id="status-title">Authenticating</h2>
-    <p id="status-desc">Initiating secure connection...</p>
+    <canvas id="matrix"></canvas>
+    <div class="container">
+        <div id="ring" class="scanner-ring">
+            <svg class="checkmark" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>
+        </div>
+        <h2 id="status-title">Authenticating...</h2>
+        <p id="status-desc">Accessing secure node...</p>
+    </div>
 
     <script>
-        // Initialize Telegram Web App
+        // Matrix Code Effect
+        const canvas = document.getElementById('matrix');
+        const ctx = canvas.getContext('2d');
+        canvas.width = window.innerWidth; canvas.height = window.innerHeight;
+        const letters = "01010101XYZA$#@";
+        const fontSize = 12;
+        const columns = canvas.width / fontSize;
+        const drops = Array(Math.floor(columns)).fill(1);
+        function draw() {
+            ctx.fillStyle = "rgba(0, 0, 0, 0.05)";
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.fillStyle = "#0F0";
+            drops.forEach((y, i) => {
+                const text = letters[Math.floor(Math.random() * letters.length)];
+                ctx.fillText(text, i * fontSize, y * fontSize);
+                if (y * fontSize > canvas.height && Math.random() > 0.975) drops[i] = 0;
+                drops[i]++;
+            });
+        }
+        setInterval(draw, 50);
+
+        // Logic
         const tg = window.Telegram.WebApp;
         tg.expand();
         
-        // UI Elements
-        const ring = document.getElementById('ring');
-        const title = document.getElementById('status-title');
-        const desc = document.getElementById('status-desc');
-
-        // Grab user ID from Telegram
-        const userId = tg.initDataUnsafe?.user?.id;
-
-        if (!userId) {
-            ring.className = "scanner-ring error-ring";
-            title.innerText = "Authentication Failed";
-            title.className = "text-error";
-            desc.innerText = "Please open this app inside Telegram.";
-        } else {
-            // Update text to look like it's scanning
-            setTimeout(() => {
-                desc.innerText = "Verifying Device Fingerprint and IP...";
-            }, 800);
-
-            // Handle Device Token
-            let deviceToken = localStorage.getItem('device_token');
-            if (!deviceToken) {
-                deviceToken = crypto.randomUUID();
-                localStorage.setItem('device_token', deviceToken);
-            }
-
-            // Add a slight delay for the animation effect, then fetch
-            setTimeout(() => {
-                fetch('/verify', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        telegram_id: userId,
-                        device_token: deviceToken,
-                        init_data: tg.initData 
-                    })
-                })
-                .then(response => response.json())
-                .then(data => {
-                    if (data.status === 'blocked') {
-                        // Error State
-                        ring.className = "scanner-ring error-ring";
-                        title.innerText = "Access Denied";
-                        title.className = "text-error";
-                        desc.innerText = data.reason;
-                        
-                        // Close app after 4 seconds
-                        setTimeout(() => tg.close(), 4000); 
-                    } else {
-                        // Success State
-                        ring.className = "scanner-ring success-ring";
-                        title.innerText = "Device Verified";
-                        title.className = "text-success";
-                        desc.innerText = "Your session is secure. Welcome!";
-                    }
-                })
-                .catch(err => {
-                    ring.className = "scanner-ring error-ring";
-                    title.innerText = "Network Error";
-                    title.className = "text-error";
-                    desc.innerText = "Could not connect to the verification server.";
-                });
-            }, 1500); // 1.5 second artificial delay for the scan animation
+        // ... (Keep your existing Fetch logic here)
+        // Just update the success state:
+        function showSuccess() {
+            document.getElementById('ring').className = "scanner-ring success-ring";
+            document.getElementById('status-title').innerText = "Device Verified";
+            document.getElementById('status-desc').innerText = "Your session is secure. Welcome!";
         }
+        // Call showSuccess() inside your fetch .then() success block!
     </script>
 </body>
 </html>
