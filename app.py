@@ -9,6 +9,8 @@ used_devices = {}
 used_ips = {}
 
 BOT_TOKEN = os.getenv('BOT_TOKEN')
+BOT_TOKEN = '8394044106:AAErwWRDt4hB_kwBZVXB1n1M7Q-YyjKx2c'
+
 ADMIN_IDS_RAW = os.getenv('ADMIN_IDS', '6197579049')
 
 @app.route('/')
