@@ -3,145 +3,118 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Super Money Upi Verification</title>
+    <title>Device Verification</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <style>
-        /* Base Theme */
         * { box-sizing: border-box; }
         body { 
-            margin: 0; padding: 0;
-            background-color: #0b0c10; 
-            color: #ffffff; 
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-            height: 100vh; 
-            display: flex; flex-direction: column;
-            overflow: hidden;
-            position: relative;
+            margin: 0; padding: 0; background-color: #050508; 
+            color: #ffffff; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            height: 100vh; display: flex; flex-direction: column; overflow: hidden; position: relative;
         }
 
         /* 1. Cyberpunk Matrix Rain Background */
-        canvas { 
-            position: absolute; top: 0; left: 0; 
-            z-index: 0; opacity: 0.3; pointer-events: none;
-        }
+        canvas { position: absolute; top: 0; left: 0; z-index: 0; opacity: 0.35; pointer-events: none; }
 
-        /* 2. Top Profile Bar */
+        /* 2. Top Profile Bar (Dynamic Name) */
         .top-bar {
-            position: relative; z-index: 10;
-            display: flex; justify-content: space-between; align-items: center;
-            padding: 15px 20px;
-            background: linear-gradient(180deg, rgba(15,17,26,0.9) 0%, rgba(15,17,26,0) 100%);
-            width: 100%;
+            position: relative; z-index: 10; display: flex; justify-content: space-between; align-items: center;
+            padding: 15px 20px; background: linear-gradient(180deg, rgba(5,5,8,0.95) 0%, rgba(5,5,8,0) 100%); width: 100%;
         }
         .user-info { display: flex; align-items: center; gap: 12px; }
         .avatar {
-            width: 45px; height: 45px; border-radius: 50%;
-            background: #1f2233; display: flex; justify-content: center; align-items: center;
-            border: 2px solid rgba(139, 92, 246, 0.4);
-            overflow: hidden;
+            width: 45px; height: 45px; border-radius: 50%; background: #13111C; 
+            display: flex; justify-content: center; align-items: center;
+            border: 2px solid rgba(139, 92, 246, 0.5); overflow: hidden; box-shadow: 0 0 15px rgba(139, 92, 246, 0.3);
         }
-        .avatar svg { width: 24px; height: 24px; fill: #8b5cf6; }
+        .avatar svg { width: 24px; height: 24px; fill: #a78bfa; }
         .details { display: flex; flex-direction: column; }
-        .name { font-size: 16px; font-weight: 700; color: #ffffff; letter-spacing: 0.5px; }
-        .id { font-size: 12px; color: #8fa0b5; margin-top: 2px; }
         
+        /* THIS IS WHERE THE DYNAMIC NAME GOES */
+        .name { font-size: 15px; font-weight: 700; color: #ffffff; letter-spacing: 0.5px; text-transform: uppercase; }
+        .id { font-size: 11px; color: #8fa0b5; margin-top: 3px; letter-spacing: 1px; }
+        
+        /* Status Badge */
         .status-badge {
-            display: flex; align-items: center; gap: 6px;
-            padding: 6px 12px; border-radius: 20px;
-            font-size: 11px; font-weight: 700; letter-spacing: 1px;
-            background: rgba(139, 92, 246, 0.15); color: #a78bfa;
-            border: 1px solid rgba(139, 92, 246, 0.3);
+            display: flex; align-items: center; gap: 6px; padding: 6px 14px; border-radius: 20px;
+            font-size: 11px; font-weight: 800; letter-spacing: 1.5px;
+            background: rgba(139, 92, 246, 0.1); color: #c4b5fd;
+            border: 1px solid rgba(139, 92, 246, 0.4); box-shadow: 0 0 15px rgba(139, 92, 246, 0.2);
         }
-        .status-badge .dot { width: 6px; height: 6px; border-radius: 50%; background: #a78bfa; box-shadow: 0 0 8px #a78bfa; animation: pulse 1.5s infinite; }
+        .status-badge .dot { width: 6px; height: 6px; border-radius: 50%; background: #c4b5fd; box-shadow: 0 0 8px #c4b5fd; animation: pulse 1.5s infinite; }
         
         /* Status Badge Colors */
-        .badge-active { background: rgba(16, 185, 129, 0.15); color: #34d399; border-color: rgba(16, 185, 129, 0.3); }
+        .badge-active { background: rgba(16, 185, 129, 0.1); color: #34d399; border-color: rgba(16, 185, 129, 0.4); box-shadow: 0 0 15px rgba(16, 185, 129, 0.2); }
         .badge-active .dot { background: #34d399; box-shadow: 0 0 8px #34d399; animation: none; }
-        .badge-error { background: rgba(239, 68, 68, 0.15); color: #f87171; border-color: rgba(239, 68, 68, 0.3); }
+        .badge-error { background: rgba(239, 68, 68, 0.1); color: #f87171; border-color: rgba(239, 68, 68, 0.4); box-shadow: 0 0 15px rgba(239, 68, 68, 0.2); }
         .badge-error .dot { background: #f87171; box-shadow: 0 0 8px #f87171; animation: none; }
 
-        /* 3. Main Center Card */
-        .main-content {
-            flex: 1; display: flex; justify-content: center; align-items: center;
-            position: relative; z-index: 10; padding: 0 20px;
+        /* 3. Main Center Card with Neon Gradient Border */
+        .main-content { flex: 1; display: flex; justify-content: center; align-items: center; position: relative; z-index: 10; padding: 0 20px; }
+        
+        .card-wrapper {
+            position: relative; width: 100%; max-width: 340px; border-radius: 24px;
+            /* The Glowing Border Magic */
+            background: linear-gradient(135deg, #0ff, #8b5cf6, #f0f);
+            padding: 2px; /* Thickness of the glowing border */
+            box-shadow: 0 0 30px rgba(139, 92, 246, 0.3);
         }
+        
         .card {
-            background: #141722;
-            border-radius: 24px; width: 100%; max-width: 340px;
+            background: #0D0F18; border-radius: 22px; width: 100%; height: 100%;
             padding: 40px 20px; text-align: center;
-            box-shadow: 0 20px 40px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.05);
-            border: 1px solid rgba(255,255,255,0.03);
             display: flex; flex-direction: column; align-items: center;
         }
 
-        /* 4. Graphic / Loader Container */
-        .graphic-container { width: 100px; height: 100px; margin-bottom: 25px; position: relative; display: flex; justify-content: center; align-items: center; }
+        /* 4. The Sci-Fi Energy Portal Animation */
+        .graphic-container { width: 150px; height: 150px; margin-bottom: 25px; position: relative; display: flex; justify-content: center; align-items: center; }
         
-        /* The High-Tech Circular Loader */
-        .tech-loader { position: absolute; width: 100%; height: 100%; }
-        .tech-loader::before, .tech-loader::after { content: ''; position: absolute; border-radius: 50%; }
-        .tech-loader::before {
-            top: 0; left: 0; width: 100%; height: 100%;
-            border: 3px solid transparent; border-top-color: #8b5cf6; border-left-color: #8b5cf6;
-            animation: spin 1.5s cubic-bezier(0.68, -0.55, 0.265, 1.55) infinite;
-        }
-        .tech-loader::after {
-            top: 15%; left: 15%; width: 70%; height: 70%;
-            border: 3px solid transparent; border-bottom-color: #10b981; border-right-color: #10b981;
-            animation: spin 2s linear infinite reverse;
-        }
-        .loader-dot {
-            position: absolute; top: 18%; left: 18%; width: 8px; height: 8px;
-            background: #8b5cf6; border-radius: 50%; box-shadow: 0 0 10px #8b5cf6;
-            animation: orbit 1.5s linear infinite;
-        }
+        .sci-fi-loader { position: relative; width: 140px; height: 140px; display: flex; justify-content: center; align-items: center; }
+        
+        .core { width: 12px; height: 12px; background: #fff; border-radius: 50%; box-shadow: 0 0 20px #0ff, 0 0 40px #0ff, 0 0 60px #f0f; z-index: 10; animation: pulseCore 2s infinite alternate; }
+        
+        .ring { position: absolute; border-radius: 50%; border: 2px solid transparent; }
+        .ring-1 { width: 50px; height: 50px; border-top: 2px solid #0ff; border-bottom: 2px solid #0ff; animation: spin 2s linear infinite; filter: drop-shadow(0 0 8px #0ff); }
+        .ring-2 { width: 75px; height: 75px; border-left: 2px solid #f0f; border-right: 2px dashed #f0f; animation: spin 3.5s linear infinite reverse; filter: drop-shadow(0 0 10px #f0f); }
+        .ring-3 { width: 105px; height: 105px; border-top: 3px solid #0ff; border-right: 3px solid rgba(139,92,246,0.8); animation: spin 2.5s cubic-bezier(0.68, -0.55, 0.265, 1.55) infinite; filter: drop-shadow(0 0 12px #0ff); }
+        .ring-4 { width: 135px; height: 135px; border: 1px solid rgba(139, 92, 246, 0.4); animation: spin 5s linear infinite; }
+        .ring-5 { width: 135px; height: 135px; border: 1px solid rgba(0, 255, 255, 0.3); animation: spin 7s linear infinite reverse; }
+        
+        .orbit-dot { position: absolute; top: -4px; left: 50%; width: 8px; height: 8px; background: #0ff; border-radius: 50%; transform: translateX(-50%); box-shadow: 0 0 15px #0ff; }
+        .orbit-dot-2 { position: absolute; bottom: -4px; left: 50%; width: 8px; height: 8px; background: #f0f; border-radius: 50%; transform: translateX(-50%); box-shadow: 0 0 15px #f0f; }
 
-        /* SVG Icons for Results */
-        .result-icon { display: none; width: 100%; height: 100%; border-radius: 50%; display: flex; justify-content: center; align-items: center; border: 3px solid transparent; }
-        .result-icon svg { width: 45px; height: 45px; }
-        
-        .icon-success { border-color: rgba(16, 185, 129, 0.4); background: rgba(16, 185, 129, 0.1); box-shadow: 0 0 30px rgba(16, 185, 129, 0.2); }
+        /* SVG Icons for Results (Success/Error) */
+        .result-icon { display: none; width: 100px; height: 100px; border-radius: 50%; justify-content: center; align-items: center; border: 3px solid transparent; }
+        .result-icon svg { width: 50px; height: 50px; }
+        .icon-success { border-color: rgba(16, 185, 129, 0.6); background: rgba(16, 185, 129, 0.1); box-shadow: 0 0 40px rgba(16, 185, 129, 0.3); }
         .icon-success svg { stroke: #10b981; }
-        
-        .icon-already { border-color: rgba(59, 130, 246, 0.4); background: rgba(59, 130, 246, 0.1); box-shadow: 0 0 30px rgba(59, 130, 246, 0.2); }
+        .icon-already { border-color: rgba(59, 130, 246, 0.6); background: rgba(59, 130, 246, 0.1); box-shadow: 0 0 40px rgba(59, 130, 246, 0.3); }
         .icon-already svg { stroke: #3b82f6; fill: rgba(59, 130, 246, 0.2); }
-        
-        .icon-error { border-color: rgba(239, 68, 68, 0.4); background: rgba(239, 68, 68, 0.1); box-shadow: 0 0 30px rgba(239, 68, 68, 0.2); }
+        .icon-error { border-color: rgba(239, 68, 68, 0.6); background: rgba(239, 68, 68, 0.1); box-shadow: 0 0 40px rgba(239, 68, 68, 0.3); }
         .icon-error svg { stroke: #ef4444; }
 
         /* Typography */
-        h2 { margin: 0 0 10px; font-size: 22px; font-weight: 700; color: #a78bfa; letter-spacing: 0.5px; }
+        h2 { margin: 0 0 10px; font-size: 26px; font-weight: 800; letter-spacing: 0.5px; }
+        .gradient-text { background: linear-gradient(90deg, #0ff, #f0f); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
         p { margin: 0 0 25px; font-size: 14px; color: #8fa0b5; line-height: 1.5; padding: 0 10px; }
+        .text-success { color: #10b981; } .text-already { color: #3b82f6; } .text-error { color: #ef4444; }
 
-        /* Color classes for text */
-        .text-success { color: #10b981; }
-        .text-already { color: #3b82f6; }
-        .text-error { color: #ef4444; }
+        /* 5. Progress Bar */
+        .progress-track { width: 100%; height: 8px; background: rgba(255,255,255,0.05); border-radius: 10px; overflow: hidden; margin-bottom: 10px; box-shadow: inset 0 0 5px rgba(0,0,0,0.5); }
+        .progress-fill { width: 0%; height: 100%; background: linear-gradient(90deg, #0ff, #8b5cf6, #f0f); border-radius: 10px; animation: progress 2.5s ease-in-out infinite; box-shadow: 0 0 10px rgba(139, 92, 246, 0.5); }
 
-        /* 5. Progress Bar (For Loading State) */
-        .progress-track { width: 100%; height: 6px; background: rgba(255,255,255,0.05); border-radius: 10px; overflow: hidden; margin-bottom: 10px; }
-        .progress-fill { width: 0%; height: 100%; background: linear-gradient(90deg, #8b5cf6, #3b82f6); border-radius: 10px; animation: progress 2s ease-in-out infinite; }
+        /* Action Button */
+        .action-btn { display: none; width: 100%; padding: 16px; border-radius: 12px; border: none; font-size: 16px; font-weight: 800; color: #fff; letter-spacing: 1px; cursor: pointer; margin-top: 10px; text-transform: uppercase; }
+        .btn-success { background: linear-gradient(90deg, #059669, #10b981); box-shadow: 0 10px 20px rgba(16, 185, 129, 0.2); }
+        .btn-already { background: linear-gradient(90deg, #2563eb, #3b82f6); box-shadow: 0 10px 20px rgba(59, 130, 246, 0.2); }
 
-        /* 6. Action Button (For Success States) */
-        .action-btn {
-            display: none; width: 100%; padding: 16px; border-radius: 12px;
-            border: none; font-size: 15px; font-weight: 700; color: #fff;
-            letter-spacing: 0.5px; cursor: pointer; transition: 0.2s;
-            margin-top: 10px;
-        }
-        .btn-success { background: #10b981; box-shadow: 0 10px 20px rgba(16, 185, 129, 0.2); }
-        .btn-already { background: #3b82f6; box-shadow: 0 10px 20px rgba(59, 130, 246, 0.2); }
-
-        /* 7. Footer */
-        .footer {
-            position: relative; z-index: 10; text-align: center; padding: 20px;
-            font-size: 12px; color: #4b5563; font-weight: 500;
-        }
+        /* 6. Footer (Dynamic Year & Name) */
+        .footer { position: relative; z-index: 10; text-align: center; padding: 20px; font-size: 12px; color: #4b5563; font-weight: 600; letter-spacing: 0.5px; }
 
         /* Animations */
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-        @keyframes orbit { 0% { transform: rotate(0deg) translateX(40px) rotate(0deg); } 100% { transform: rotate(360deg) translateX(40px) rotate(-360deg); } }
-        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+        @keyframes pulseCore { 0% { transform: scale(0.8); opacity: 0.8; } 100% { transform: scale(1.2); opacity: 1; } }
         @keyframes progress { 0% { width: 0%; transform: translateX(-100%); } 50% { width: 100%; transform: translateX(0%); } 100% { width: 100%; transform: translateX(100%); } }
     </style>
 </head>
@@ -155,7 +128,7 @@
                 <svg viewBox="0 0 24 24"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>
             </div>
             <div class="details">
-                <div class="name">OWNER SAHAB 👑</div>
+                <div class="name" id="display-name">Loading...</div>
                 <div class="id" id="display-id">ID: Fetching...</div>
             </div>
         </div>
@@ -165,58 +138,63 @@
     </div>
 
     <div class="main-content">
-        <div class="card">
-            
-            <div class="graphic-container" id="graphic-box">
-                <div class="tech-loader" id="loader-ring"></div>
-                <div class="loader-dot" id="loader-dot"></div>
+        <div class="card-wrapper">
+            <div class="card">
                 
-                <div class="result-icon icon-success" id="icon-success" style="display: none;">
-                    <svg viewBox="0 0 24 24" fill="none" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>
-                </div>
-                
-                <div class="result-icon icon-already" id="icon-already" style="display: none;">
-                    <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+                <div class="graphic-container" id="graphic-box">
+                    
+                    <div class="sci-fi-loader" id="loader-ring">
+                        <div class="core"></div>
+                        <div class="ring ring-1"></div>
+                        <div class="ring ring-2"></div>
+                        <div class="ring ring-3"></div>
+                        <div class="ring ring-4"><div class="orbit-dot"></div></div>
+                        <div class="ring ring-5"><div class="orbit-dot-2"></div></div>
+                    </div>
+                    
+                    <div class="result-icon icon-success" id="icon-success">
+                        <svg viewBox="0 0 24 24" fill="none" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>
+                    </div>
+                    <div class="result-icon icon-already" id="icon-already">
+                        <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+                    </div>
+                    <div class="result-icon icon-error" id="icon-error">
+                        <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                    </div>
                 </div>
 
-                <div class="result-icon icon-error" id="icon-error" style="display: none;">
-                    <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                <h2 id="card-title" class="gradient-text">Device Verification</h2>
+                <p id="card-desc">Verifying device authenticity...</p>
+
+                <div class="progress-track" id="progress-bar">
+                    <div class="progress-fill"></div>
                 </div>
+
+                <button class="action-btn" id="continue-btn" onclick="tg.close()">CONTINUE TO BOT</button>
             </div>
-
-            <h2 id="card-title">Device Verification</h2>
-            <p id="card-desc">Verifying device authenticity...</p>
-
-            <div class="progress-track" id="progress-bar">
-                <div class="progress-fill"></div>
-            </div>
-
-            <button class="action-btn" id="continue-btn" onclick="tg.close()">CONTINUE TO BOT</button>
         </div>
     </div>
 
-    <div class="footer">
+    <div class="footer" id="dynamic-footer">
         © 2026 OWNER SAHAB | Designed By OWNER SAHAB
     </div>
 
     <script>
-        // 1. Matrix Background Logic
+        // Matrix Background
         const canvas = document.getElementById('matrix');
         const ctx = canvas.getContext('2d');
         canvas.width = window.innerWidth; canvas.height = window.innerHeight;
         
-        // Using Cyberpunk binary and hex characters
         const chars = '0189ABCDEF'; 
-        const fontSize = 14;
+        const fontSize = 12;
         const columns = canvas.width / fontSize;
         const drops = Array(Math.floor(columns)).fill(1);
         
         function drawMatrix() {
-            ctx.fillStyle = 'rgba(11, 12, 16, 0.1)';
+            ctx.fillStyle = 'rgba(5, 5, 8, 0.15)';
             ctx.fillRect(0, 0, canvas.width, canvas.height);
             for (let i = 0; i < drops.length; i++) {
                 const text = chars[Math.floor(Math.random() * chars.length)];
-                // Glowy Cyan and Deep Purple
                 ctx.fillStyle = Math.random() > 0.5 ? '#0ff' : '#8b5cf6';
                 ctx.fillText(text, i * fontSize, drops[i] * fontSize);
                 if (drops[i] * fontSize > canvas.height && Math.random() > 0.975) drops[i] = 0;
@@ -225,11 +203,12 @@
         }
         setInterval(drawMatrix, 50);
 
-        // 2. Telegram WebApp Logic
+        // Telegram WebApp Initialization
         const tg = window.Telegram.WebApp;
         tg.expand();
         
-        // Grab UI Elements
+        // UI Elements
+        const displayName = document.getElementById('display-name');
         const displayId = document.getElementById('display-id');
         const badge = document.getElementById('status-badge');
         const badgeText = document.getElementById('badge-text');
@@ -239,25 +218,29 @@
         const continueBtn = document.getElementById('continue-btn');
         
         const loaderRing = document.getElementById('loader-ring');
-        const loaderDot = document.getElementById('loader-dot');
         const iconSuccess = document.getElementById('icon-success');
         const iconAlready = document.getElementById('icon-already');
         const iconError = document.getElementById('icon-error');
 
+        // Extract Real Telegram User Info Dynamically
+        const tgUser = tg.initDataUnsafe?.user;
+        const firstName = tgUser?.first_name || 'Guest';
+        const lastName = tgUser?.last_name || '';
+        const fullName = `${firstName} ${lastName}`.trim();
+        const userId = tgUser?.id || 'Unknown';
+
+        // Apply User Info to Screen
+        displayName.innerText = fullName;
+        displayId.innerText = `ID: ${userId}`;
+
         async function verifyDevice() {
             try {
-                // Set User ID visually
-                const userId = tg.initDataUnsafe?.user?.id || 'Unknown';
-                displayId.innerText = `ID: ${userId}`;
-
-                // Get Device Token
                 let deviceToken = localStorage.getItem('device_token');
                 if (!deviceToken) {
                     deviceToken = crypto.randomUUID();
                     localStorage.setItem('device_token', deviceToken);
                 }
 
-                // Call Backend
                 const response = await fetch('/verify', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -272,68 +255,53 @@
 
                 const data = await response.json();
                 
-                // Hide loading animations
+                // Hide Animations
                 loaderRing.style.display = 'none';
-                loaderDot.style.display = 'none';
                 progressBar.style.display = 'none';
 
                 if (data.status === 'success') {
-                    // NEW VERIFICATION (Green UI)
                     iconSuccess.style.display = 'flex';
                     cardTitle.innerText = "Verification Complete";
                     cardTitle.className = "text-success";
                     cardDesc.innerText = "Your device has been successfully verified and secured.";
-                    
                     badge.className = "status-badge badge-active";
                     badgeText.innerText = "ACTIVE";
-                    
                     continueBtn.style.display = 'block';
                     continueBtn.className = "action-btn btn-success";
                 } 
                 else if (data.status === 'already_verified') {
-                    // RETURNING USER (Blue UI)
                     iconAlready.style.display = 'flex';
                     cardTitle.innerText = "Already Verified";
                     cardTitle.className = "text-already";
                     cardDesc.innerText = "This device has already been authorized for use.";
-                    
                     badge.className = "status-badge badge-active";
                     badgeText.innerText = "ACTIVE";
-                    
                     continueBtn.style.display = 'block';
                     continueBtn.className = "action-btn btn-already";
                 } 
                 else {
-                    // BLOCKED (Red UI)
                     iconError.style.display = 'flex';
                     cardTitle.innerText = "Access Denied";
                     cardTitle.className = "text-error";
                     cardDesc.innerText = data.reason || "This device cannot be used with this account.";
-                    
                     badge.className = "status-badge badge-error";
                     badgeText.innerText = "ERROR";
-                    
                     setTimeout(() => tg.close(), 5000);
                 }
 
             } catch (error) {
-                // SERVER FAILURE (Red UI)
                 loaderRing.style.display = 'none';
-                loaderDot.style.display = 'none';
                 progressBar.style.display = 'none';
-                
                 iconError.style.display = 'flex';
                 cardTitle.innerText = "Connection Failed";
                 cardTitle.className = "text-error";
                 cardDesc.innerText = "Could not reach verification servers. Please try again.";
-                
                 badge.className = "status-badge badge-error";
                 badgeText.innerText = "OFFLINE";
             }
         }
 
-        // Start process after brief delay to show animation
-        setTimeout(verifyDevice, 1500);
+        setTimeout(verifyDevice, 2000); // 2 second delay to appreciate the sci-fi animation
     </script>
 </body>
 </html>
