@@ -1,62 +1,147 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Cyber Verification</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <style>
-        body { margin: 0; background: #050505; color: #0ff; font-family: 'Courier New', monospace; height: 100vh; display: flex; flex-direction: column; justify-content: center; align-items: center; overflow: hidden; }
+        body { margin: 0; background-color: #05020a; color: #0ff; font-family: 'Courier New', Courier, monospace; height: 100vh; overflow: hidden; }
         
-        /* Neon Floating Icons Background */
-        .tech-bg { position: absolute; width: 100%; height: 100%; z-index: 0; overflow: hidden; }
-        .icon { position: absolute; opacity: 0.1; animation: float 10s infinite linear; }
-        @keyframes float { 0% { transform: translateY(100vh); } 100% { transform: translateY(-100px); } }
+        /* 1. Cyberpunk Matrix Canvas */
+        canvas { display: block; position: absolute; top: 0; left: 0; z-index: 1; }
 
-        /* Spinner */
-        .loader { width: 100px; height: 100px; border: 4px solid #111; border-top: 4px solid #0ff; border-radius: 50%; animation: spin 1s linear infinite; }
+        /* 2. Floating Devices (Clearly Visible & Glowing) */
+        .tech-bg { position: absolute; width: 100%; height: 100%; z-index: 2; pointer-events: none; }
+        .icon { position: absolute; font-size: 3.5rem; opacity: 0.95; filter: drop-shadow(0 0 10px #f0f) drop-shadow(0 0 20px #0ff); animation: floatUp 7s infinite linear; }
+        @keyframes floatUp { 0% { transform: translateY(110vh) rotate(0deg); } 100% { transform: translateY(-20vh) rotate(360deg); } }
+
+        /* 3. Perfectly Centered UI Panel */
+        .center-container { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 10; text-align: center; background: rgba(5, 2, 10, 0.85); padding: 30px 20px; border: 2px solid #0ff; border-radius: 15px; box-shadow: 0 0 30px rgba(0, 255, 255, 0.5), inset 0 0 20px rgba(255, 0, 255, 0.3); backdrop-filter: blur(8px); width: 80%; max-width: 320px; }
+
+        /* Glowing Spinner */
+        .loader { width: 80px; height: 80px; border: 4px solid rgba(0, 255, 255, 0.1); border-top: 4px solid #0ff; border-bottom: 4px solid #f0f; border-radius: 50%; animation: spin 1s linear infinite; margin: 0 auto 20px; box-shadow: 0 0 20px #0ff; }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+        /* Success & Error States */
+        .success { border-color: #0f0; box-shadow: 0 0 30px #0f0; animation: none; display: flex; justify-content: center; align-items: center; color: #0f0; font-size: 40px; font-weight: bold; }
+        .error { border-color: #f00; box-shadow: 0 0 30px #f00; animation: none; display: flex; justify-content: center; align-items: center; color: #f00; font-size: 40px; font-weight: bold; }
         
-        .success { border-color: #f0f; } /* Neon Pink for Success */
+        h2 { margin: 0 0 10px; font-size: 1.4rem; text-transform: uppercase; letter-spacing: 2px; text-shadow: 0 0 10px #0ff; }
+        p { margin: 0; font-size: 0.95rem; color: #fff; text-shadow: 0 0 8px #f0f; }
+        
+        /* Debugger Text */
+        #debug-log { margin-top: 15px; font-size: 0.75rem; color: #ffeb3b; word-wrap: break-word; min-height: 15px; }
     </style>
 </head>
 <body>
+    <canvas id="matrix"></canvas>
+
     <div class="tech-bg">
-        <div class="icon" style="left:10%; font-size:50px;">💻</div>
-        <div class="icon" style="left:50%; font-size:40px; animation-delay: 2s;">📱</div>
-        <div class="icon" style="left:80%; font-size:60px; animation-delay: 4s;">🖥️</div>
+        <div class="icon" style="left:15%; animation-delay: 0s;">📱</div>
+        <div class="icon" style="left:75%; animation-delay: 2.5s; font-size: 4rem;">💻</div>
+        <div class="icon" style="left:40%; animation-delay: 5s;">🖥️</div>
+        <div class="icon" style="left:85%; animation-delay: 1s;">📱</div>
     </div>
 
-    <div style="z-index:1; text-align:center;">
+    <div class="center-container">
         <div id="loader" class="loader"></div>
-        <h2 id="status">Authenticating...</h2>
-        <p id="desc">Accessing secure node...</p>
-    </div>
+        <h2 id="status-title">Authenticating</h2>
+        <p id="status-desc">Establishing secure link...</p>
+        <div id="debug-log">Ready...</div> </div>
 
     <script>
+        // 1. Cyberpunk Matrix Rain Logic
+        const canvas = document.getElementById('matrix');
+        const ctx = canvas.getContext('2d');
+        canvas.width = window.innerWidth; canvas.height = window.innerHeight;
+        const chars = '01ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+        const fontSize = 16;
+        const columns = canvas.width / fontSize;
+        const drops = Array(Math.floor(columns)).fill(1);
+        
+        function drawMatrix() {
+            ctx.fillStyle = 'rgba(5, 2, 10, 0.1)';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            for (let i = 0; i < drops.length; i++) {
+                const text = chars[Math.floor(Math.random() * chars.length)];
+                // Mix of Cyan and Neon Pink
+                ctx.fillStyle = Math.random() > 0.8 ? '#f0f' : '#0ff';
+                ctx.fillText(text, i * fontSize, drops[i] * fontSize);
+                if (drops[i] * fontSize > canvas.height && Math.random() > 0.975) drops[i] = 0;
+                drops[i]++;
+            }
+        }
+        setInterval(drawMatrix, 50);
+
+        // 2. Verification Logic (With Built-in Debugger)
         const tg = window.Telegram.WebApp;
         tg.expand();
+        const debugLog = document.getElementById('debug-log');
+        const loader = document.getElementById('loader');
+        const title = document.getElementById('status-title');
+        const desc = document.getElementById('status-desc');
 
-        async function verify() {
+        async function verifyDevice() {
             try {
-                // Fetch logic with a timeout
+                // Ensure device token exists
+                let deviceToken = localStorage.getItem('device_token');
+                if (!deviceToken) {
+                    deviceToken = crypto.randomUUID();
+                    localStorage.setItem('device_token', deviceToken);
+                }
+
+                const userId = tg.initDataUnsafe?.user?.id || 'UnknownUser';
+                debugLog.innerText = "Sending request to Railway...";
+
                 const response = await fetch('/verify', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ telegram_id: tg.initDataUnsafe?.user?.id, device_token: localStorage.getItem('device_token') || crypto.randomUUID() })
+                    body: JSON.stringify({
+                        telegram_id: userId,
+                        device_token: deviceToken,
+                        init_data: tg.initData
+                    })
                 });
+
+                debugLog.innerText = "Waiting for server response...";
                 
+                if (!response.ok) {
+                    throw new Error(`HTTP Error: ${response.status}`);
+                }
+
                 const data = await response.json();
                 
-                if(data.status === 'success') {
-                    document.getElementById('loader').className = "loader success";
-                    document.getElementById('status').innerText = "DEVICE VERIFIED";
-                    document.getElementById('desc').innerText = "CYBER-LINK ESTABLISHED";
+                if (data.status === 'success') {
+                    loader.className = "loader success";
+                    loader.innerHTML = "✓";
+                    title.innerText = "ACCESS GRANTED";
+                    title.style.color = "#0f0";
+                    desc.innerText = "Device fingerprint validated.";
+                    debugLog.innerText = "All systems green.";
                 } else {
-                    document.getElementById('status').innerText = "ACCESS DENIED";
+                    loader.className = "loader error";
+                    loader.innerHTML = "✗";
+                    title.innerText = "ACCESS DENIED";
+                    title.style.color = "#f00";
+                    desc.innerText = data.reason || "Security violation detected.";
+                    debugLog.innerText = "Blocked by server.";
+                    setTimeout(() => tg.close(), 5000);
                 }
-            } catch (e) {
-                document.getElementById('desc').innerText = "Server Error: Retrying...";
-                setTimeout(verify, 2000); // Retry if it gets stuck
+
+            } catch (error) {
+                // IF IT GETS STUCK, THIS WILL TELL US WHY
+                loader.className = "loader error";
+                loader.innerHTML = "!";
+                title.innerText = "CONNECTION FAILED";
+                title.style.color = "#f00";
+                desc.innerText = "Could not reach the server.";
+                debugLog.innerText = `Error: ${error.message}`;
             }
         }
-        verify();
+
+        // Start verification after a tiny delay so the UI loads first
+        setTimeout(verifyDevice, 800);
     </script>
 </body>
 </html>
