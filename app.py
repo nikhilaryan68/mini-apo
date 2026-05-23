@@ -2,47 +2,51 @@ from flask import Flask, request, jsonify, render_template
 
 app = Flask(__name__)
 
-# Temporary databases (will reset if the server restarts)
+# Temporary databases (resets if Railway server restarts)
 used_devices = {}
 used_ips = {}
 
-# 1. This route serves your Frontend to Telegram
 @app.route('/')
 def home():
-    # This looks inside the "templates" folder for index.html
     return render_template('index.html') 
 
-# 2. This route handles the background verification
 @app.route('/verify', methods=['POST'])
 def verify_user():
     data = request.json
     telegram_id = data.get('telegram_id')
     device_token = data.get('device_token')
     
-    # Capture the User's IP Address
+    # Capture IP Address securely
     user_ip = request.headers.get('X-Forwarded-For', request.remote_addr)
     if user_ip and ',' in user_ip:
         user_ip = user_ip.split(',')[0].strip()
 
-    # Device Token Check
+    # 1. Check if this exact user + device is ALREADY verified
+    if device_token in used_devices and used_devices[device_token] == telegram_id:
+        return jsonify({
+            "status": "already_verified", 
+            "message": "Your account is already verified on this device."
+        })
+
+    # 2. Check if the device is registered to SOMEONE ELSE
     if device_token in used_devices and used_devices[device_token] != telegram_id:
         return jsonify({
             "status": "blocked", 
-            "reason": "Access Denied: This device is already registered to another account."
+            "reason": "Access Denied: This device is linked to another account."
         })
 
-    # IP Address Check
+    # 3. Check if the IP is registered to SOMEONE ELSE
     if user_ip in used_ips and used_ips[user_ip] != telegram_id:
         return jsonify({
             "status": "blocked", 
-            "reason": "Access Denied: This IP network is already registered to another account."
+            "reason": "Access Denied: This network is linked to another account."
         })
 
-    # Register the user
+    # 4. If completely new, register them
     used_devices[device_token] = telegram_id
     used_ips[user_ip] = telegram_id
 
-    return jsonify({"status": "success", "message": "Verified"})
+    return jsonify({"status": "success", "message": "Device successfully verified."})
 
 if __name__ == '__main__':
-    app.run(port=5000)
+    app.run(host='0.0.0.0', port=5000)
