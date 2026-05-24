@@ -73,10 +73,14 @@ def verify_user():
 
         if other_user:
             conn.close()
+            # Notice we removed the 403 error. 
+            # We return a normal 200 OK so the frontend doesn't crash, 
+            # and pass the "reason" directly to your UI.
             return jsonify({
-                "status": "error",
-                "reason": "This device is already linked to another account. Multiple accounts are not allowed."
-            }), 403
+                "status": "device_used",
+                "reason": "Same device detected! Multiple accounts are not allowed on one device."
+            }), 200
+
 
         # 3. CHECK IF THIS USER IS ALREADY VERIFIED
         if user[0] == 1:
