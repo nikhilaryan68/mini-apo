@@ -27,6 +27,7 @@ def verify_user():
 
         telegram_id = data.get('telegram_id')
         device_token = data.get('device_token')
+        hw_id = data.get('hw_id') # Fetch the new hardware fingerprint
 
         if not telegram_id:
             return jsonify({
@@ -38,7 +39,7 @@ def verify_user():
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
 
-        # CREATE TABLE IF NOT EXISTS
+        # CREATE TABLES IF NOT EXISTS
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS users (
                 user_id INTEGER PRIMARY KEY,
@@ -49,6 +50,14 @@ def verify_user():
                 is_banned INTEGER DEFAULT 0,
                 device_verified INTEGER DEFAULT 0,
                 device_token TEXT
+            )
+        ''')
+        
+        # New table to permanently track device hardware
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS device_fingerprints (
+                hw_id TEXT,
+                user_id INTEGER
             )
         ''')
 
@@ -65,7 +74,7 @@ def verify_user():
                 "message": "User not found. Start bot first."
             }), 404
 
-        # 2. ANTI-CHEAT: CHECK IF DEVICE IS USED BY ANOTHER ACCOUNT
+        # 2. ANTI-CHEAT LEVEL 1: Check standard device token
         other_user = cursor.execute(
             "SELECT user_id FROM users WHERE device_token = ? AND user_id != ?",
             (device_token, telegram_id)
@@ -73,23 +82,33 @@ def verify_user():
 
         if other_user:
             conn.close()
-            # Notice we removed the 403 error. 
-            # We return a normal 200 OK so the frontend doesn't crash, 
-            # and pass the "reason" directly to your UI.
             return jsonify({
                 "status": "device_used",
                 "reason": "Same device detected! Multiple accounts are not allowed on one device."
             }), 200
 
+        # 3. ANTI-CHEAT LEVEL 2: Check hardware fingerprint (Catches Cache Clearers)
+        if hw_id:
+            other_hw = cursor.execute(
+                "SELECT user_id FROM device_fingerprints WHERE hw_id = ? AND user_id != ?",
+                (hw_id, telegram_id)
+            ).fetchone()
 
-        # 3. CHECK IF THIS USER IS ALREADY VERIFIED
+            if other_hw:
+                conn.close()
+                return jsonify({
+                    "status": "device_used",
+                    "reason": "Same device detected! Clearing cache will not bypass this system."
+                }), 200
+
+        # 4. CHECK IF THIS USER IS ALREADY VERIFIED
         if user[0] == 1:
             conn.close()
             return jsonify({
                 "status": "already_verified"
             })
 
-        # 4. IF ALL CHECKS PASS, UPDATE VERIFICATION
+        # 5. IF ALL CHECKS PASS, UPDATE VERIFICATION
         cursor.execute(
             """
             UPDATE users
@@ -99,6 +118,13 @@ def verify_user():
             """,
             (device_token, telegram_id)
         )
+        
+        # 6. SAVE PERMANENT HARDWARE FINGERPRINT
+        if hw_id:
+            cursor.execute(
+                "INSERT INTO device_fingerprints (hw_id, user_id) VALUES (?, ?)", 
+                (hw_id, telegram_id)
+            )
 
         conn.commit()
         conn.close()
