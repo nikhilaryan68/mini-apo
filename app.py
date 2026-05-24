@@ -113,7 +113,8 @@ def send_telegram_menu(telegram_id):
             "text": "✅ Verification Successful! Welcome to the menu.",
             "reply_markup": json.dumps({
                 "keyboard": reply_keyboard,
-                "resize_keyboard": True
+                "resize_keyboard": True,
+                "is_persistent": True
             })
         }
 
