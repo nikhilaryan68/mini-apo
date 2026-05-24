@@ -26,6 +26,10 @@ TOKEN = os.getenv('BOT_TOKEN')
 if not TOKEN:
     raise ValueError("No BOT_TOKEN provided in environment variables!")
 
+DATABASE_URL = os.getenv('DATABASE_URL')
+if not DATABASE_URL:
+    raise ValueError("No DATABASE_URL provided in environment variables!")
+
 WEBAPP_URL = os.getenv('WEBAPP_URL', 'https://mini-apo-production.up.railway.app/')
 
 admin_ids_raw = os.getenv('ADMIN_IDS', '6197579049')
@@ -35,27 +39,27 @@ ADMIN_IDS = [int(x.strip()) for x in admin_ids_raw.split(',') if x.strip().isdig
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# --- Database Setup ---
+# --- Database Setup (PostgreSQL) ---
 def init_db():
-    conn = sqlite3.connect('task_bot.db')
+    conn = psycopg2.connect(DATABASE_URL)
     cursor = conn.cursor()
 
     cursor.execute('''CREATE TABLE IF NOT EXISTS users (
-        user_id INTEGER PRIMARY KEY,
+        user_id BIGINT PRIMARY KEY,
         username TEXT,
-        balance REAL DEFAULT 0.0,
-        referred_by INTEGER,
+        balance FLOAT DEFAULT 0.0,
+        referred_by BIGINT,
         upi_id TEXT,
-        is_banned INTEGER DEFAULT 0,
-        device_verified INTEGER DEFAULT 0,
+        is_banned INT DEFAULT 0,
+        device_verified INT DEFAULT 0,
         device_token TEXT
     )''')
 
     cursor.execute('''CREATE TABLE IF NOT EXISTS tasks (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        id SERIAL PRIMARY KEY,
         task_data TEXT,
         status TEXT DEFAULT 'available',
-        assigned_to INTEGER,
+        assigned_to BIGINT,
         assigned_at TEXT,
         submission_data TEXT
     )''')
@@ -70,21 +74,10 @@ def init_db():
         invite_link TEXT
     )''')
 
-    cursor.execute(
-        "INSERT OR IGNORE INTO config (key, value) VALUES ('menu_text', 'Welcome to the Task Bot! Complete tasks to earn INR.')"
-    )
-
-    cursor.execute(
-        "INSERT OR IGNORE INTO config (key, value) VALUES ('bot_status', 'ON')"
-    )
-
-    cursor.execute(
-        "INSERT OR IGNORE INTO config (key, value) VALUES ('withdrawal_status', 'ON')"
-    )
-
-    cursor.execute(
-        "INSERT OR IGNORE INTO config (key, value) VALUES ('total_wd_processed', '0')"
-    )
+    cursor.execute("INSERT INTO config (key, value) VALUES ('menu_text', 'Welcome to the Task Bot! Complete tasks to earn INR.') ON CONFLICT (key) DO NOTHING")
+    cursor.execute("INSERT INTO config (key, value) VALUES ('bot_status', 'ON') ON CONFLICT (key) DO NOTHING")
+    cursor.execute("INSERT INTO config (key, value) VALUES ('withdrawal_status', 'ON') ON CONFLICT (key) DO NOTHING")
+    cursor.execute("INSERT INTO config (key, value) VALUES ('total_wd_processed', '0') ON CONFLICT (key) DO NOTHING")
 
     conn.commit()
     conn.close()
@@ -92,9 +85,12 @@ def init_db():
 init_db()
 
 def db_query(query, params=(), commit=False, fetchall=False, fetchone=False):
-    conn = sqlite3.connect('task_bot.db')
+    # Automatically convert SQLite '?' to Postgres '%s' for compatibility
+    pg_query = query.replace('?', '%s')
+    
+    conn = psycopg2.connect(DATABASE_URL)
     cursor = conn.cursor()
-    cursor.execute(query, params)
+    cursor.execute(pg_query, params)
     res = None
     if commit: conn.commit()
     if fetchall: res = cursor.fetchall()
@@ -178,7 +174,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
         db_query(
-            "INSERT INTO users (user_id, username, referred_by, device_verified) VALUES (?, ?, ?, 0)",
+            "INSERT INTO users (user_id, username, referred_by, device_verified) VALUES (?, ?, ?, 0) ON CONFLICT (user_id) DO NOTHING",
             (user_id, username, ref_id),
             commit=True
         )
@@ -366,7 +362,6 @@ async def handle_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data == "adm_rem_chan": context.user_data['state'] = 'ADM_REM_CHAN_DATA'; await query.message.reply_text("id to rem")
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # Safety checks to prevent NoneType errors from channel posts or service messages
     if not update.effective_user:
         return
     if not update.message or not update.message.text:
@@ -376,7 +371,6 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip()
     state = context.user_data.get('state')
 
-    # Security check to prevent bypass
     user = db_query("SELECT is_banned, device_verified FROM users WHERE user_id = ?", (user_id,), fetchone=True)
     if not user:
         await update.message.reply_text("⚠️ Please send /start first.")
@@ -454,7 +448,6 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             db_query("UPDATE users SET device_verified=1 WHERE user_id=?", (target_id,), commit=True)
             await update.message.reply_text(f"✅ User {target_id} has been manually verified and can now access the bot.")
             
-            # Try to send the user a notification and the main menu
             try:
                 menu_text = db_query("SELECT value FROM config WHERE key='menu_text'", fetchone=True)[0]
                 await context.bot.send_message(
@@ -516,7 +509,9 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif state == 'ADM_ADD_CHAN_DATA':
         if ":" in text: 
             cid, lnk = text.split(":", 1)
-            db_query("INSERT OR REPLACE INTO channels (chat_id, invite_link) VALUES (?,?)", (cid.strip(), lnk.strip()), commit=True); await update.message.reply_text("Added.")
+            # Replaced SQLite "INSERT OR REPLACE" with Postgres "ON CONFLICT DO UPDATE"
+            db_query("INSERT INTO channels (chat_id, invite_link) VALUES (?,?) ON CONFLICT (chat_id) DO UPDATE SET invite_link = EXCLUDED.invite_link", (cid.strip(), lnk.strip()), commit=True)
+            await update.message.reply_text("Added.")
     
     elif state == 'ADM_REM_CHAN_DATA': db_query("DELETE FROM channels WHERE chat_id=?", (text,), commit=True); await update.message.reply_text("Deleted.")
     
