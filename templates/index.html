@@ -216,14 +216,32 @@
 
         async function verifyDevice() {
             try {
+                // 1. Get standard token
                 let deviceToken = localStorage.getItem('device_token');
-
                 if (!deviceToken) {
                     deviceToken = crypto.randomUUID();
                     localStorage.setItem('device_token', deviceToken);
                 }
 
-                // Changed to relative URL for security and to avoid CORS drops
+                // 2. Generate Permanent Hardware Fingerprint
+                const canvas = document.createElement('canvas');
+                const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
+                let renderer = 'unknown';
+                if (gl) {
+                    const debugInfo = gl.getExtension('WEBGL_debug_renderer_info');
+                    if (debugInfo) {
+                        renderer = gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL);
+                    }
+                }
+                
+                // Combine immutable hardware stats into one string
+                const hwId = [
+                    screen.width + 'x' + screen.height,
+                    navigator.hardwareConcurrency || 0,
+                    navigator.deviceMemory || 0,
+                    renderer
+                ].join('|||');
+
                 const response = await fetch('/verify', {
                     method: 'POST',
                     headers: {
@@ -232,15 +250,14 @@
                     body: JSON.stringify({
                         telegram_id: userId,
                         device_token: deviceToken,
+                        hw_id: hwId, // Send hardware ID to server
                         init_data: tg.initData
                     })
                 });
 
-                // Parse json even if it fails, so we get the backend error string
                 const data = await response.json();
 
                 if (!response.ok) {
-                    // This extracts "User not found. Start bot first."
                     throw new Error(data.message || "Server Error");
                 }
 
@@ -270,6 +287,7 @@
                     setTimeout(() => tg.close(), 2000);
 
                 } else {
+                    // This handles the 'device_used' status cleanly
                     iconError.style.display = 'flex';
                     cardTitle.innerText = "Access Denied";
                     cardTitle.className = "text-error";
@@ -287,10 +305,7 @@
                 iconError.style.display = 'flex';
                 cardTitle.innerText = "Connection Failed";
                 cardTitle.className = "text-error";
-                
-                // Now displays the ACTUAL server error (e.g. "User not found") instead of default text
                 cardDesc.innerText = error.message || "Could not reach verification servers. Please try again.";
-                
                 badge.className = "status-badge badge-error";
                 badgeText.innerText = "OFFLINE";
             }
