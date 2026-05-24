@@ -232,10 +232,14 @@ async def handle_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
             [InlineKeyboardButton("🪙 Check Balance", callback_data="adm_chk_bal"), InlineKeyboardButton("💳 Mod Balance", callback_data="adm_mod_bal")],
             [InlineKeyboardButton("🏆 Top 10 Bal", callback_data="adm_top_bal"), InlineKeyboardButton("📝 Menu Text", callback_data="adm_chg_text")],
             [InlineKeyboardButton("📢 Manage Channels", callback_data="adm_manage_channels"), InlineKeyboardButton("🔍 Task Lookup", callback_data="adm_task_status_lookup")],
-            [InlineKeyboardButton("📊 Bot Stats", callback_data="adm_stats")],
+            [InlineKeyboardButton("📊 Bot Stats", callback_data="adm_stats"), InlineKeyboardButton("✅ Verify User", callback_data="adm_verify_user")],
             [InlineKeyboardButton("❌ Close", callback_data="main_menu")]
         ]
         await query.message.edit_text("⚙️ **Admin Panel**", reply_markup=InlineKeyboardMarkup(kbd))
+
+    elif data == "adm_verify_user" and user_id in ADMIN_IDS:
+        context.user_data['state'] = 'ADM_VERIFY_USER'
+        await query.message.reply_text("Enter User ID to manually verify:")
 
     elif data == "adm_stats" and user_id in ADMIN_IDS:
         total_u = db_query("SELECT COUNT(*) FROM users", fetchone=True)[0]
@@ -435,7 +439,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             [InlineKeyboardButton("🪙 Check Balance", callback_data="adm_chk_bal"), InlineKeyboardButton("💳 Mod Balance", callback_data="adm_mod_bal")],
             [InlineKeyboardButton("🏆 Top 10 Bal", callback_data="adm_top_bal"), InlineKeyboardButton("📝 Menu Text", callback_data="adm_chg_text")],
             [InlineKeyboardButton("📢 Manage Channels", callback_data="adm_manage_channels"), InlineKeyboardButton("🔍 Task Lookup", callback_data="adm_task_status_lookup")],
-            [InlineKeyboardButton("📊 Bot Stats", callback_data="adm_stats")],
+            [InlineKeyboardButton("📊 Bot Stats", callback_data="adm_stats"), InlineKeyboardButton("✅ Verify User", callback_data="adm_verify_user")],
             [InlineKeyboardButton("❌ Close", callback_data="main_menu")]
         ]
         await update.message.reply_text("⚙️ **Admin Panel**", reply_markup=InlineKeyboardMarkup(kbd))
@@ -444,7 +448,26 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not state: return
     context.user_data['state'] = None
 
-    if state == 'WAITING_UPI': db_query("UPDATE users SET upi_id=? WHERE user_id=?", (text, user_id), commit=True); await update.message.reply_text("UPI Linked.")
+    if state == 'ADM_VERIFY_USER' and user_id in ADMIN_IDS:
+        if text.isdigit():
+            target_id = int(text)
+            db_query("UPDATE users SET device_verified=1 WHERE user_id=?", (target_id,), commit=True)
+            await update.message.reply_text(f"✅ User {target_id} has been manually verified and can now access the bot.")
+            
+            # Try to send the user a notification and the main menu
+            try:
+                menu_text = db_query("SELECT value FROM config WHERE key='menu_text'", fetchone=True)[0]
+                await context.bot.send_message(
+                    chat_id=target_id, 
+                    text="✅ You have been manually verified by an Admin!\n\n" + menu_text, 
+                    reply_markup=get_main_menu_keyboard(target_id)
+                )
+            except:
+                pass
+        else:
+            await update.message.reply_text("❌ Invalid User ID. Please enter numbers only.")
+
+    elif state == 'WAITING_UPI': db_query("UPDATE users SET upi_id=? WHERE user_id=?", (text, user_id), commit=True); await update.message.reply_text("UPI Linked.")
     
     elif state == 'WAITING_WD_AMOUNT':
         try: amt = float(text)
