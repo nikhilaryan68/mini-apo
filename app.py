@@ -1,5 +1,5 @@
 from flask import Flask, request, jsonify, render_template
-import sqlite3
+import psycopg2
 import requests
 import os
 import json
@@ -20,115 +20,66 @@ used_ips = {}
 def home():
     return render_template('index.html')
 
+DATABASE_URL = os.getenv('DATABASE_URL')
+BOT_TOKEN = os.getenv('BOT_TOKEN')
+ADMIN_IDS_RAW = os.getenv('ADMIN_IDS', '6197579049')
+
 @app.route('/verify', methods=['POST'])
 def verify_user():
     try:
         data = request.json
-
         telegram_id = data.get('telegram_id')
         device_token = data.get('device_token')
-        hw_id = data.get('hw_id') # Fetch the new hardware fingerprint
+        hw_id = data.get('hw_id')
 
         if not telegram_id:
-            return jsonify({
-                "status": "error",
-                "message": "Telegram ID missing"
-            }), 400
+            return jsonify({"status": "error", "message": "Telegram ID missing"}), 400
 
-        # CONNECT DATABASE
-        conn = sqlite3.connect(DB_PATH)
+        # CONNECT TO POSTGRES
+        conn = psycopg2.connect(DATABASE_URL)
         cursor = conn.cursor()
 
-        # CREATE TABLES IF NOT EXISTS
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS users (
-                user_id INTEGER PRIMARY KEY,
-                username TEXT,
-                balance REAL DEFAULT 0.0,
-                referred_by INTEGER,
-                upi_id TEXT,
-                is_banned INTEGER DEFAULT 0,
-                device_verified INTEGER DEFAULT 0,
-                device_token TEXT
-            )
-        ''')
-        
-        # New table to permanently track device hardware
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS device_fingerprints (
-                hw_id TEXT,
-                user_id INTEGER
-            )
-        ''')
-
-        # 1. CHECK IF USER EXISTS AND GET STATUS
-        user = cursor.execute(
-            "SELECT device_verified FROM users WHERE user_id = ?",
-            (telegram_id,)
-        ).fetchone()
+        # 1. CHECK IF USER EXISTS
+        cursor.execute("SELECT device_verified FROM users WHERE user_id = %s", (telegram_id,))
+        user = cursor.fetchone()
 
         if not user:
             conn.close()
-            return jsonify({
-                "status": "error",
-                "message": "User not found. Start bot first."
-            }), 404
+            return jsonify({"status": "error", "message": "User not found. Start bot first."}), 404
 
-        # 2. ANTI-CHEAT LEVEL 1: Check standard device token
-        other_user = cursor.execute(
-            "SELECT user_id FROM users WHERE device_token = ? AND user_id != ?",
-            (device_token, telegram_id)
-        ).fetchone()
-
-        if other_user:
+        # 2. ANTI-CHEAT: Check device token
+        cursor.execute("SELECT user_id FROM users WHERE device_token = %s AND user_id != %s", (device_token, telegram_id))
+        if cursor.fetchone():
             conn.close()
-            return jsonify({
-                "status": "device_used",
-                "reason": "Same device detected! Multiple accounts are not allowed on one device."
-            }), 200
+            return jsonify({"status": "device_used", "reason": "Same device detected!"}), 200
 
-        # 3. ANTI-CHEAT LEVEL 2: Check hardware fingerprint (Catches Cache Clearers)
+        # 3. ANTI-CHEAT: Check hardware fingerprint
         if hw_id:
-            other_hw = cursor.execute(
-                "SELECT user_id FROM device_fingerprints WHERE hw_id = ? AND user_id != ?",
-                (hw_id, telegram_id)
-            ).fetchone()
-
-            if other_hw:
+            cursor.execute("SELECT user_id FROM device_fingerprints WHERE hw_id = %s AND user_id != %s", (hw_id, telegram_id))
+            if cursor.fetchone():
                 conn.close()
-                return jsonify({
-                    "status": "device_used",
-                    "reason": "Same device detected! Clearing cache will not bypass this system."
-                }), 200
+                return jsonify({"status": "device_used", "reason": "Same device detected!"}), 200
 
-        # 4. CHECK IF THIS USER IS ALREADY VERIFIED
+        # 4. Check verification status
         if user[0] == 1:
             conn.close()
-            return jsonify({
-                "status": "already_verified"
-            })
+            return jsonify({"status": "already_verified"})
 
-        # 5. IF ALL CHECKS PASS, UPDATE VERIFICATION
-        cursor.execute(
-            """
-            UPDATE users
-            SET device_verified = 1,
-                device_token = ?
-            WHERE user_id = ?
-            """,
-            (device_token, telegram_id)
-        )
+        # 5. Update user
+        cursor.execute("UPDATE users SET device_verified = 1, device_token = %s WHERE user_id = %s", (device_token, telegram_id))
         
-        # 6. SAVE PERMANENT HARDWARE FINGERPRINT
         if hw_id:
-            cursor.execute(
-                "INSERT INTO device_fingerprints (hw_id, user_id) VALUES (?, ?)", 
-                (hw_id, telegram_id)
-            )
+            cursor.execute("INSERT INTO device_fingerprints (hw_id, user_id) VALUES (%s, %s)", (hw_id, telegram_id))
 
         conn.commit()
         conn.close()
 
+        send_telegram_menu(telegram_id)
+        return jsonify({"status": "success", "message": "Verification successful"})
+
+    except Exception as e:
+        print(f"VERIFY ERROR: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
         # SEND MENU TO USER
         send_telegram_menu(telegram_id)
 
