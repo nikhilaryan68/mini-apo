@@ -1,5 +1,5 @@
 import logging
-import sqlite3
+import psycopg2
 import asyncio
 import os
 from datetime import datetime, timedelta
