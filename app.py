@@ -52,21 +52,40 @@ def verify_user():
             )
         ''')
 
-        # CHECK USER
+        # 1. CHECK IF USER EXISTS AND GET STATUS
         user = cursor.execute(
-            "SELECT user_id FROM users WHERE user_id = ?",
+            "SELECT device_verified FROM users WHERE user_id = ?",
             (telegram_id,)
         ).fetchone()
 
         if not user:
             conn.close()
-
             return jsonify({
                 "status": "error",
                 "message": "User not found. Start bot first."
             }), 404
 
-        # UPDATE VERIFICATION
+        # 2. ANTI-CHEAT: CHECK IF DEVICE IS USED BY ANOTHER ACCOUNT
+        other_user = cursor.execute(
+            "SELECT user_id FROM users WHERE device_token = ? AND user_id != ?",
+            (device_token, telegram_id)
+        ).fetchone()
+
+        if other_user:
+            conn.close()
+            return jsonify({
+                "status": "error",
+                "reason": "This device is already linked to another account. Multiple accounts are not allowed."
+            }), 403
+
+        # 3. CHECK IF THIS USER IS ALREADY VERIFIED
+        if user[0] == 1:
+            conn.close()
+            return jsonify({
+                "status": "already_verified"
+            })
+
+        # 4. IF ALL CHECKS PASS, UPDATE VERIFICATION
         cursor.execute(
             """
             UPDATE users
@@ -90,7 +109,6 @@ def verify_user():
 
     except Exception as e:
         print(f"VERIFY ERROR: {e}")
-
         return jsonify({
             "status": "error",
             "message": str(e)
