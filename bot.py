@@ -419,7 +419,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     elif text == "📞 Support":
-        admin_contact_url = f"tg://user?id={ADMIN_IDS[0]}"
+        admin_contact_url = f"tg://openmessage?user_id=7930010364"
         await update.message.reply_text(f"📞 Contact Support: {admin_contact_url}")
         return
 
