@@ -181,47 +181,50 @@
             const statusText = document.getElementById('statusText');
             const txnText = document.getElementById('txnText');
 
-            let currentStatus = 'SUCCESS'; // Default expectation
+            let currentStatus = 'SUCCESS'; // Default expectation for triggered links
             let currentTxn = '';
 
-            // 1. SMART EXTRACTION (Try parsing as exact JSON first)
-            try {
-                const parsedData = JSON.parse(rawTxnid);
-                
-                // Extract Status safely
-                if (parsedData.bank_status) currentStatus = String(parsedData.bank_status).toUpperCase();
-                else if (parsedData.status) currentStatus = String(parsedData.status).toUpperCase();
-                
-                // Extract EXACT TXN ID safely (Prioritize Full2SMS order_id or utr)
-                if (parsedData.utr && parsedData.utr !== 'null' && parsedData.utr !== '') {
-                    currentTxn = String(parsedData.utr);
-                } else if (parsedData.order_id && parsedData.order_id !== 'null' && parsedData.order_id !== '') {
-                    currentTxn = String(parsedData.order_id);
-                } else if (parsedData.txnid && parsedData.txnid !== 'null' && parsedData.txnid !== '') {
-                    currentTxn = String(parsedData.txnid);
-                }
-            } catch (error) {
-                // 2. FALLBACK: If it is not JSON, scan the text
-                const cleanText = rawTxnid.toUpperCase().replace(/\s/g, '');
-                
-                if (cleanText.includes('FAIL') || cleanText.includes('ERROR') || cleanText.includes('REJECT')) {
-                    currentStatus = 'FAILED';
-                } else if (cleanText.includes('PENDING')) {
-                    currentStatus = 'PENDING';
-                }
-
-                // Aggressive Scanner: Look for alphanumeric strings between 8 to 35 characters
-                const txnMatch = rawTxnid.match(/[A-Z0-9]{8,35}/i);
-                if (txnMatch) {
-                    currentTxn = txnMatch[0];
-                } else if (rawTxnid && !rawTxnid.includes('{')) {
-                    currentTxn = rawTxnid; // Use plain text if it's clean
+            // 1. SMART EXTRACTION
+            if (rawTxnid.includes('{') || rawTxnid.includes('[')) {
+                try {
+                    const jsonStart = rawTxnid.indexOf('{');
+                    const jsonEnd = rawTxnid.lastIndexOf('}') + 1;
+                    const jsonString = rawTxnid.substring(jsonStart, jsonEnd);
+                    const parsedData = JSON.parse(jsonString);
+                    
+                    if (parsedData.bank_status) currentStatus = String(parsedData.bank_status).toUpperCase();
+                    else if (parsedData.status) currentStatus = String(parsedData.status).toUpperCase();
+                    
+                    if (parsedData.utr && parsedData.utr !== 'null' && parsedData.utr !== '') currentTxn = String(parsedData.utr);
+                    else if (parsedData.order_id && parsedData.order_id !== 'null' && parsedData.order_id !== '') currentTxn = String(parsedData.order_id);
+                    else if (parsedData.txnid && parsedData.txnid !== 'null' && parsedData.txnid !== '') currentTxn = String(parsedData.txnid);
+                } catch (e) {
+                    // Ignore parsing errors for truncated JSON
                 }
             }
 
-            // Final fallback if extraction was completely empty
+            // 2. FALLBACK SCANNER: Used if JSON parsing fails or if the parameter is a direct string/number
             if (!currentTxn || currentTxn === '') {
-                currentTxn = 'Processing...';
+                // Hunt for any 10-35 character alphanumeric sequence (e.g. 521021025449514852481015)
+                const txnMatch = rawTxnid.match(/[a-zA-Z0-9]{10,35}/);
+                if (txnMatch) {
+                    currentTxn = txnMatch[0];
+                } else if (rawTxnid && !rawTxnid.includes('{')) {
+                    currentTxn = rawTxnid; // Use plain text if completely clean
+                }
+            }
+
+            // 3. EXPLICIT STATUS DETECTION (Read raw data for Failure/Pending keywords)
+            const cleanText = rawTxnid.toUpperCase().replace(/\s/g, '');
+            if (cleanText.includes('FAIL') || cleanText.includes('ERROR') || cleanText.includes('REJECT')) {
+                currentStatus = 'FAILED';
+            } else if (cleanText.includes('PENDING')) {
+                currentStatus = 'PENDING';
+            }
+
+            // Safe fallback to prevent blank displays
+            if (!currentTxn || currentTxn === '') {
+                currentTxn = 'N/A';
             }
 
             // Function to paint the UI colors and text
@@ -247,12 +250,14 @@
                 }
             }
 
-            // Load the UI immediately using the extracted data
+            // Render the initial fully processed extraction
             updatePageUI(currentStatus, currentTxn);
 
-            // 3. LIVE API FETCH (Optional backup to verify bank processing)
-            if (apiTemplate && currentTxn && currentTxn !== 'Processing...') {
-                const apiUrl = apiTemplate.replace('{txnid}', encodeURIComponent(currentTxn));
+            // 4. LIVE API BACKGROUND FETCH
+            const queryId = currentTxn !== 'N/A' ? currentTxn : rawTxnid;
+
+            if (apiTemplate && queryId && !queryId.includes('{')) {
+                const apiUrl = apiTemplate.replace('{txnid}', encodeURIComponent(queryId));
                 
                 fetch(apiUrl)
                     .then(res => res.json())
@@ -270,8 +275,8 @@
                         updatePageUI(liveStatus, liveTxn);
                     })
                     .catch(err => {
-                        // Keeps our perfectly extracted TXN ID on screen even if the browser blocks the fetch
-                        console.log("Live fetch skipped or blocked, keeping extracted data.");
+                        // Silently fails on CORS/Network errors, keeping our reliable local extractions visible
+                        console.log("Live fetch skipped or blocked, maintaining extracted data.");
                     });
             }
         });
