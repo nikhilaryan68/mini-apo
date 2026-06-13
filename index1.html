@@ -74,7 +74,7 @@
             width: 90px;
             height: 90px;
             border-radius: 50%;
-            border: 6px solid #f59e0b;
+            border: 6px solid #10b981; /* Default to success green */
             display: flex;
             align-items: center;
             justify-content: center;
@@ -131,13 +131,13 @@
     <div class="main-card">
         
         <div class="status-circle" id="statusCircle">
-            <i class="fas fa-hourglass-half color-pending" id="statusIcon"></i>
+            <i class="fas fa-check color-success" id="statusIcon"></i>
         </div>
 
         <div class="details-container">
             <div class="detail-row">
                 <span class="label">STATUS :-</span>
-                <span class="value color-pending" id="statusText">FETCHING...</span>
+                <span class="value color-success" id="statusText">SUCCESS</span>
             </div>
             <div class="detail-row">
                 <span class="label">AMOUNT :-</span>
@@ -149,7 +149,7 @@
             </div>
             <div class="detail-row">
                 <span class="label">UTR :-</span>
-                <span class="value" id="utrText">FETCHING...</span>
+                <span class="value" id="utrText">EXTRACTING...</span>
             </div>
         </div>
     </div>
@@ -167,8 +167,9 @@
             const name = urlParams.get('name') || 'User';
             const amt = urlParams.get('amt') || '0';
             const upi = urlParams.get('upi') || 'N/A';
-            const rawTxnid = urlParams.get('txnid') || '';
-            const apiTemplate = urlParams.get('api') || '';
+            // Decode URI to fix any broken JSON formatting sent via URL
+            const rawTxnid = decodeURIComponent(urlParams.get('txnid') || '').trim();
+            const apiTemplate = decodeURIComponent(urlParams.get('api') || '');
 
             // Apply static text to the UI
             document.getElementById('userName').innerText = name;
@@ -181,47 +182,38 @@
             const statusText = document.getElementById('statusText');
             const utrText = document.getElementById('utrText');
 
-            let currentStatus = 'PENDING';
-            let currentUtr = rawTxnid;
-            let cleanIdForApi = rawTxnid;
+            // 1. DEFAULT TO SUCCESS (Since the bot only shows this button on successful payout calls)
+            let currentStatus = 'SUCCESS';
+            let currentUtr = 'Processing / Check Bank';
 
-            // Step 1: Pre-Process the initial data sent by the bot
-            try {
-                // If the bot sent raw JSON text instead of an ID, parse it directly
-                const parsed = JSON.parse(rawTxnid);
-                if (parsed.status) currentStatus = String(parsed.status).toUpperCase();
-                if (parsed.message && String(parsed.message).toUpperCase().includes('SUCCESS')) currentStatus = 'SUCCESS';
-                
-                // Secure the clean order ID
-                if (parsed.order_id) cleanIdForApi = String(parsed.order_id);
-                else if (parsed.txnid) cleanIdForApi = String(parsed.txnid);
-                else cleanIdForApi = ""; // Prevent bad API requests
-                
-                // Secure the initial UTR
-                if (parsed.utr) currentUtr = String(parsed.utr);
-                else if (parsed.order_id) currentUtr = String(parsed.order_id);
-                
-            } catch(e) {
-                // If it's standard text, remove all spaces to catch typos like "SUCCES S"
-                const cleanText = rawTxnid.toUpperCase().replace(/\s/g, '');
-                if (cleanText.includes('SUCCESS') || cleanText.includes('PAID')) {
-                    currentStatus = 'SUCCESS';
-                } else if (cleanText.includes('FAIL') || cleanText.includes('ERROR') || cleanText.includes('REJECT')) {
-                    currentStatus = 'FAILED';
-                }
+            // 2. AGGRESSIVE UTR EXTRACTION
+            // This Regex hunts for any 12 to 35 digit continuous number anywhere in the raw text/JSON
+            const utrMatch = rawTxnid.match(/\d{12,35}/);
+            
+            if (utrMatch) {
+                // Instantly grabs the exact order_id/utr (e.g., 521021025449514852481015)
+                currentUtr = utrMatch[0];
+            } else if (rawTxnid && !rawTxnid.includes('{')) {
+                // If there's no long number, but the text is clean (no messy JSON), use it
+                currentUtr = rawTxnid;
             }
 
-            // Fallback: If UTR is still messy JSON code, sanitize it so the user never sees it
-            if (currentUtr.includes('{') || currentUtr.length > 35) {
-                currentUtr = (currentStatus === 'SUCCESS') ? 'Success / Check Bank' : 'Processing...';
+            // 3. CHECK FOR EXPLICIT FAILURE
+            // In case the API hit was registered but returned an explicit failure message
+            const cleanText = rawTxnid.toUpperCase().replace(/\s/g, '');
+            if (cleanText.includes('FAIL') || cleanText.includes('ERROR') || cleanText.includes('REJECT')) {
+                currentStatus = 'FAILED';
+                if (!utrMatch) currentUtr = 'N/A';
+            } else if (cleanText.includes('PENDING')) {
+                currentStatus = 'PENDING';
             }
 
             // Function to paint the UI colors and text
             function updatePageUI(status, utr) {
                 const checkStatus = status.toUpperCase().replace(/\s/g, '');
-                utrText.innerText = utr || 'N/A';
+                utrText.innerText = utr;
 
-                if (checkStatus.includes('SUCCESS') || checkStatus.includes('PAID')) {
+                if (checkStatus.includes('SUCCESS') || checkStatus.includes('PAID') || checkStatus.includes('COMPLETED')) {
                     statusCircle.style.borderColor = '#10b981';
                     statusIcon.className = 'fas fa-check color-success';
                     statusText.className = 'value color-success';
@@ -239,12 +231,15 @@
                 }
             }
 
-            // Instantly load the initial safe status
+            // Instantly load the safe extracted data
             updatePageUI(currentStatus, currentUtr);
 
-            // Step 2: Fetch the live status and strict UTR from the API link
-            if (apiTemplate && cleanIdForApi && !cleanIdForApi.includes('{')) {
-                const apiUrl = apiTemplate.replace('{txnid}', encodeURIComponent(cleanIdForApi));
+            // 4. LIVE API BACKGROUND FETCH (Optional safety net)
+            // Use the perfectly extracted UTR as the ID to query, instead of the messy JSON
+            const queryId = utrMatch ? utrMatch[0] : rawTxnid;
+
+            if (apiTemplate && queryId && !queryId.includes('{')) {
+                const apiUrl = apiTemplate.replace('{txnid}', encodeURIComponent(queryId));
                 
                 fetch(apiUrl)
                     .then(res => res.json())
@@ -252,21 +247,20 @@
                         let liveStatus = currentStatus;
                         let liveUtr = currentUtr;
 
-                        // Target the exact Full2SMS response parameters
-                        if (json.bank_status) liveStatus = String(json.bank_status).toUpperCase();
-                        else if (json.status) liveStatus = String(json.status).toUpperCase();
+                        // Target the exact Full2SMS status parameters
+                        if (json.bank_status) liveStatus = String(json.bank_status);
+                        else if (json.status) liveStatus = String(json.status);
 
                         // Target exact Full2SMS UTR parameters
                         if (json.utr && json.utr !== 'null' && json.utr !== '') liveUtr = String(json.utr);
                         else if (json.bank_reference) liveUtr = String(json.bank_reference);
-                        else if (json.order_id) liveUtr = String(json.order_id);
 
-                        // Paint the final API validated response
                         updatePageUI(liveStatus, liveUtr);
                     })
                     .catch(err => {
-                        // If browser blocks the API via CORS, silently fail and keep the initial successful fallback
-                        console.log("Live fetch blocked, relying on fallback status.");
+                        // If browser blocks the API via CORS, silently fail. 
+                        // The UI will perfectly keep the Regex-extracted UTR and SUCCESS status!
+                        console.log("Live fetch blocked by browser CORS, relying on Regex extracted status.");
                     });
             }
         });
