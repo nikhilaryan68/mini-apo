@@ -161,16 +161,16 @@
                 Telegram.WebApp.expand();
             }
 
-            // Extract parameters
+            // Extract parameters passed from the Bot
             const urlParams = new URLSearchParams(window.location.search);
             const uid = urlParams.get('uid') || 'N/A';
             const name = urlParams.get('name') || 'User';
             const amt = urlParams.get('amt') || '0';
             const upi = urlParams.get('upi') || 'N/A';
-            const txnid = (urlParams.get('txnid') || '').trim();
+            const rawTxnid = urlParams.get('txnid') || '';
             const apiTemplate = urlParams.get('api') || '';
 
-            // Apply static content
+            // Apply static text to the UI
             document.getElementById('userName').innerText = name;
             document.getElementById('userId').innerText = 'ID: ' + uid;
             document.getElementById('amtText').innerText = '₹' + amt;
@@ -181,42 +181,47 @@
             const statusText = document.getElementById('statusText');
             const utrText = document.getElementById('utrText');
 
-            // Set up status helpers
-            function isStatusKeyword(str) {
-                const keywords = ['SUCCESS', 'PAID', 'FAILED', 'FAIL', 'PENDING', 'ERROR', 'REJECTED', 'TRUE', 'FALSE', 'OK', 'SUCCESSFUL'];
-                return keywords.includes(str.toUpperCase());
-            }
+            let currentStatus = 'PENDING';
+            let currentUtr = rawTxnid;
+            let cleanIdForApi = rawTxnid;
 
-            // Fallback checking logic based on bot parameters
-            let currentStatus = 'SUCCESS'; 
-            let currentUtr = txnid;
-
-            const cleanTxn = txnid.toUpperCase();
-            if (cleanTxn.includes('FAIL') || cleanTxn.includes('REJECT') || cleanTxn.includes('ERR')) {
-                currentStatus = 'FAILED';
-                currentUtr = 'N/A';
-            } else if (cleanTxn.includes('PENDING')) {
-                currentStatus = 'PENDING';
-                currentUtr = 'Processing...';
-            } else if (isStatusKeyword(txnid)) {
-                currentStatus = 'SUCCESS';
-                currentUtr = 'Success / Check Bank';
-            }
-
-            // UI Refresh Engine
-            function updatePageUI(status, utrValue) {
-                const checkStatus = status.toUpperCase();
+            // Step 1: Pre-Process the initial data sent by the bot
+            try {
+                // If the bot sent raw JSON text instead of an ID, parse it directly
+                const parsed = JSON.parse(rawTxnid);
+                if (parsed.status) currentStatus = String(parsed.status).toUpperCase();
+                if (parsed.message && String(parsed.message).toUpperCase().includes('SUCCESS')) currentStatus = 'SUCCESS';
                 
-                // Keep generic API responses out of the UTR row
-                if (!utrValue || isStatusKeyword(utrValue) || utrValue === '[object Object]' || utrValue === '{}') {
-                    utrText.innerText = (checkStatus === 'SUCCESS') ? 'Success / Check Bank' : 'N/A';
-                } else {
-                    utrText.innerText = utrValue;
+                // Secure the clean order ID
+                if (parsed.order_id) cleanIdForApi = String(parsed.order_id);
+                else if (parsed.txnid) cleanIdForApi = String(parsed.txnid);
+                else cleanIdForApi = ""; // Prevent bad API requests
+                
+                // Secure the initial UTR
+                if (parsed.utr) currentUtr = String(parsed.utr);
+                else if (parsed.order_id) currentUtr = String(parsed.order_id);
+                
+            } catch(e) {
+                // If it's standard text, remove all spaces to catch typos like "SUCCES S"
+                const cleanText = rawTxnid.toUpperCase().replace(/\s/g, '');
+                if (cleanText.includes('SUCCESS') || cleanText.includes('PAID')) {
+                    currentStatus = 'SUCCESS';
+                } else if (cleanText.includes('FAIL') || cleanText.includes('ERROR') || cleanText.includes('REJECT')) {
+                    currentStatus = 'FAILED';
                 }
+            }
 
-                statusText.innerText = checkStatus;
+            // Fallback: If UTR is still messy JSON code, sanitize it so the user never sees it
+            if (currentUtr.includes('{') || currentUtr.length > 35) {
+                currentUtr = (currentStatus === 'SUCCESS') ? 'Success / Check Bank' : 'Processing...';
+            }
 
-                if (checkStatus.includes('SUCCESS') || checkStatus === 'PAID' || checkStatus === 'COMPLETED') {
+            // Function to paint the UI colors and text
+            function updatePageUI(status, utr) {
+                const checkStatus = status.toUpperCase().replace(/\s/g, '');
+                utrText.innerText = utr || 'N/A';
+
+                if (checkStatus.includes('SUCCESS') || checkStatus.includes('PAID')) {
                     statusCircle.style.borderColor = '#10b981';
                     statusIcon.className = 'fas fa-check color-success';
                     statusText.className = 'value color-success';
@@ -234,55 +239,34 @@
                 }
             }
 
-            // Run initial UI layout immediately
+            // Instantly load the initial safe status
             updatePageUI(currentStatus, currentUtr);
 
-            // Execute dynamic background status scan if link is configured properly
-            if (apiTemplate && txnid && !isStatusKeyword(txnid)) {
-                const apiUrl = apiTemplate.replace('{txnid}', encodeURIComponent(txnid));
+            // Step 2: Fetch the live status and strict UTR from the API link
+            if (apiTemplate && cleanIdForApi && !cleanIdForApi.includes('{')) {
+                const apiUrl = apiTemplate.replace('{txnid}', encodeURIComponent(cleanIdForApi));
                 
                 fetch(apiUrl)
-                    .then(response => response.text())
-                    .then(data => {
-                        try {
-                            const json = JSON.parse(data);
-                            let liveStatus = currentStatus;
-                            let liveUtr = currentUtr;
+                    .then(res => res.json())
+                    .then(json => {
+                        let liveStatus = currentStatus;
+                        let liveUtr = currentUtr;
 
-                            // Deep scan JSON fields for payment status
-                            const statusCheckFields = ['status', 'state', 'result', 'payment_status', 'txnamountstatus', 'code'];
-                            for (let field of statusCheckFields) {
-                                if (json[field]) { liveStatus = String(json[field]); break; }
-                                if (json.data && json.data[field]) { liveStatus = String(json.data[field]); break; }
-                                if (json.response && json.response[field]) { liveStatus = String(json.response[field]); break; }
-                            }
+                        // Target the exact Full2SMS response parameters
+                        if (json.bank_status) liveStatus = String(json.bank_status).toUpperCase();
+                        else if (json.status) liveStatus = String(json.status).toUpperCase();
 
-                            // Deep scan JSON fields for reference number
-                            const utrCheckFields = ['utr', 'ref_id', 'bank_ref', 'rrn', 'transaction_id', 'txnid', 'bank_reference'];
-                            for (let field of utrCheckFields) {
-                                if (json[field] && !isStatusKeyword(String(json[field]))) { liveUtr = String(json[field]); break; }
-                                if (json.data && json.data[field] && !isStatusKeyword(String(json.data[field]))) { liveUtr = String(json.data[field]); break; }
-                                if (json.response && json.response[field] && !isStatusKeyword(String(json.response[field]))) { liveUtr = String(json.response[field]); break; }
-                            }
+                        // Target exact Full2SMS UTR parameters
+                        if (json.utr && json.utr !== 'null' && json.utr !== '') liveUtr = String(json.utr);
+                        else if (json.bank_reference) liveUtr = String(json.bank_reference);
+                        else if (json.order_id) liveUtr = String(json.order_id);
 
-                            updatePageUI(liveStatus, liveUtr);
-                        } catch(err) {
-                            // Plain text handler
-                            const plainText = data.toUpperCase();
-                            let textStatus = currentStatus;
-                            if (plainText.includes('SUCCESS') || plainText.includes('PAID')) textStatus = 'SUCCESS';
-                            else if (plainText.includes('FAIL') || plainText.includes('REJECT')) textStatus = 'FAILED';
-                            
-                            // Extract 12-digit Indian banking UTR string if present in text
-                            const rrnRegex = data.match(/\d{12}/);
-                            const textUtr = rrnRegex ? rrnRegex[0] : txnid;
-
-                            updatePageUI(textStatus, textUtr);
-                        }
+                        // Paint the final API validated response
+                        updatePageUI(liveStatus, liveUtr);
                     })
-                    .catch(() => {
-                        // Keep current status if blocked by browser CORS block
-                        updatePageUI(currentStatus, currentUtr);
+                    .catch(err => {
+                        // If browser blocks the API via CORS, silently fail and keep the initial successful fallback
+                        console.log("Live fetch blocked, relying on fallback status.");
                     });
             }
         });
