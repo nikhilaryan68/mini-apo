@@ -14,7 +14,6 @@
             margin: 0;
             padding: 0;
             font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-            /* Vibrant background gradient */
             background: linear-gradient(135deg, #a18cd1 0%, #fbc2eb 100%);
             height: 100vh;
             display: flex;
@@ -75,7 +74,7 @@
             width: 90px;
             height: 90px;
             border-radius: 50%;
-            border: 6px solid #f59e0b; /* Default yellow */
+            border: 6px solid #f59e0b;
             display: flex;
             align-items: center;
             justify-content: center;
@@ -157,22 +156,21 @@
 
     <script>
         document.addEventListener("DOMContentLoaded", () => {
-            // Initialize Telegram WebApp
             if (window.Telegram && window.Telegram.WebApp) {
                 Telegram.WebApp.ready();
                 Telegram.WebApp.expand();
             }
 
-            // Extract URL Parameters
+            // Extract parameters
             const urlParams = new URLSearchParams(window.location.search);
-            const uid = urlParams.get('uid') || 'Unknown';
+            const uid = urlParams.get('uid') || 'N/A';
             const name = urlParams.get('name') || 'User';
             const amt = urlParams.get('amt') || '0';
-            const upi = urlParams.get('upi') || 'Unknown';
-            const txnid = urlParams.get('txnid') || '';
+            const upi = urlParams.get('upi') || 'N/A';
+            const txnid = (urlParams.get('txnid') || '').trim();
             const apiTemplate = urlParams.get('api') || '';
 
-            // Populate static UI elements
+            // Apply static content
             document.getElementById('userName').innerText = name;
             document.getElementById('userId').innerText = 'ID: ' + uid;
             document.getElementById('amtText').innerText = '₹' + amt;
@@ -183,26 +181,52 @@
             const statusText = document.getElementById('statusText');
             const utrText = document.getElementById('utrText');
 
-            // Function to update the UI based on status
-            function updateUI(status, utr) {
-                const upperStatus = status.toUpperCase();
-                utrText.innerText = utr || 'N/A';
-                statusText.innerText = upperStatus;
+            // Set up status helpers
+            function isStatusKeyword(str) {
+                const keywords = ['SUCCESS', 'PAID', 'FAILED', 'FAIL', 'PENDING', 'ERROR', 'REJECTED', 'TRUE', 'FALSE', 'OK', 'SUCCESSFUL'];
+                return keywords.includes(str.toUpperCase());
+            }
 
-                if (upperStatus.includes('SUCCESS') || upperStatus === 'PAID') {
-                    // Success UI
+            // Fallback checking logic based on bot parameters
+            let currentStatus = 'SUCCESS'; 
+            let currentUtr = txnid;
+
+            const cleanTxn = txnid.toUpperCase();
+            if (cleanTxn.includes('FAIL') || cleanTxn.includes('REJECT') || cleanTxn.includes('ERR')) {
+                currentStatus = 'FAILED';
+                currentUtr = 'N/A';
+            } else if (cleanTxn.includes('PENDING')) {
+                currentStatus = 'PENDING';
+                currentUtr = 'Processing...';
+            } else if (isStatusKeyword(txnid)) {
+                currentStatus = 'SUCCESS';
+                currentUtr = 'Success / Check Bank';
+            }
+
+            // UI Refresh Engine
+            function updatePageUI(status, utrValue) {
+                const checkStatus = status.toUpperCase();
+                
+                // Keep generic API responses out of the UTR row
+                if (!utrValue || isStatusKeyword(utrValue) || utrValue === '[object Object]' || utrValue === '{}') {
+                    utrText.innerText = (checkStatus === 'SUCCESS') ? 'Success / Check Bank' : 'N/A';
+                } else {
+                    utrText.innerText = utrValue;
+                }
+
+                statusText.innerText = checkStatus;
+
+                if (checkStatus.includes('SUCCESS') || checkStatus === 'PAID' || checkStatus === 'COMPLETED') {
                     statusCircle.style.borderColor = '#10b981';
                     statusIcon.className = 'fas fa-check color-success';
                     statusText.className = 'value color-success';
                     statusText.innerText = 'SUCCESS';
-                } else if (upperStatus.includes('FAIL') || upperStatus.includes('ERROR') || upperStatus.includes('REJECT')) {
-                    // Failed UI
+                } else if (checkStatus.includes('FAIL') || checkStatus.includes('ERROR') || checkStatus.includes('REJECT')) {
                     statusCircle.style.borderColor = '#ef4444';
                     statusIcon.className = 'fas fa-times color-failed';
                     statusText.className = 'value color-failed';
                     statusText.innerText = 'FAILED';
                 } else {
-                    // Pending UI
                     statusCircle.style.borderColor = '#f59e0b';
                     statusIcon.className = 'fas fa-hourglass-half color-pending';
                     statusText.className = 'value color-pending';
@@ -210,37 +234,56 @@
                 }
             }
 
-            // Fetch data if API link is provided
-            if (apiTemplate && txnid) {
-                // Replace {txnid} placeholder with the actual transaction ID
-                const apiUrl = apiTemplate.replace('{txnid}', txnid);
+            // Run initial UI layout immediately
+            updatePageUI(currentStatus, currentUtr);
+
+            // Execute dynamic background status scan if link is configured properly
+            if (apiTemplate && txnid && !isStatusKeyword(txnid)) {
+                const apiUrl = apiTemplate.replace('{txnid}', encodeURIComponent(txnid));
                 
                 fetch(apiUrl)
                     .then(response => response.text())
                     .then(data => {
                         try {
                             const json = JSON.parse(data);
-                            // Checks common JSON keys for status and UTR based on standard Indian Payment Gateways
-                            const finalStatus = json.status || json.state || json.result || 'PENDING';
-                            const finalUtr = json.utr || json.ref_id || json.bank_ref || json.rrn || txnid;
-                            updateUI(finalStatus, finalUtr);
-                        } catch(e) {
-                            // Fallback if the API returns plain text instead of JSON
-                            const textData = data.toUpperCase();
-                            let finalStatus = 'PENDING';
-                            if (textData.includes('SUCCESS') || textData.includes('PAID')) finalStatus = 'SUCCESS';
-                            else if (textData.includes('FAIL')) finalStatus = 'FAILED';
+                            let liveStatus = currentStatus;
+                            let liveUtr = currentUtr;
+
+                            // Deep scan JSON fields for payment status
+                            const statusCheckFields = ['status', 'state', 'result', 'payment_status', 'txnamountstatus', 'code'];
+                            for (let field of statusCheckFields) {
+                                if (json[field]) { liveStatus = String(json[field]); break; }
+                                if (json.data && json.data[field]) { liveStatus = String(json.data[field]); break; }
+                                if (json.response && json.response[field]) { liveStatus = String(json.response[field]); break; }
+                            }
+
+                            // Deep scan JSON fields for reference number
+                            const utrCheckFields = ['utr', 'ref_id', 'bank_ref', 'rrn', 'transaction_id', 'txnid', 'bank_reference'];
+                            for (let field of utrCheckFields) {
+                                if (json[field] && !isStatusKeyword(String(json[field]))) { liveUtr = String(json[field]); break; }
+                                if (json.data && json.data[field] && !isStatusKeyword(String(json.data[field]))) { liveUtr = String(json.data[field]); break; }
+                                if (json.response && json.response[field] && !isStatusKeyword(String(json.response[field]))) { liveUtr = String(json.response[field]); break; }
+                            }
+
+                            updatePageUI(liveStatus, liveUtr);
+                        } catch(err) {
+                            // Plain text handler
+                            const plainText = data.toUpperCase();
+                            let textStatus = currentStatus;
+                            if (plainText.includes('SUCCESS') || plainText.includes('PAID')) textStatus = 'SUCCESS';
+                            else if (plainText.includes('FAIL') || plainText.includes('REJECT')) textStatus = 'FAILED';
                             
-                            updateUI(finalStatus, txnid);
+                            // Extract 12-digit Indian banking UTR string if present in text
+                            const rrnRegex = data.match(/\d{12}/);
+                            const textUtr = rrnRegex ? rrnRegex[0] : txnid;
+
+                            updatePageUI(textStatus, textUtr);
                         }
                     })
-                    .catch(err => {
-                        // Network error or CORS issue fallback
-                        updateUI('PENDING', txnid);
+                    .catch(() => {
+                        // Keep current status if blocked by browser CORS block
+                        updatePageUI(currentStatus, currentUtr);
                     });
-            } else {
-                // No API link set by admin, default to showing the raw transaction ID
-                updateUI('PENDING', txnid || 'Awaiting Response');
             }
         });
     </script>
