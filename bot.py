@@ -4,6 +4,7 @@ import asyncio
 import os
 import random
 import requests
+import urllib.parse
 from datetime import datetime, timedelta, timezone
 from telegram import (
     Update, 
@@ -99,6 +100,7 @@ def init_db():
     cursor.execute("INSERT INTO config (key, value) VALUES ('withdrawal_status', 'ON') ON CONFLICT (key) DO NOTHING")
     cursor.execute("INSERT INTO config (key, value) VALUES ('total_wd_processed', '0') ON CONFLICT (key) DO NOTHING")
     cursor.execute("INSERT INTO config (key, value) VALUES ('payment_api_url', '') ON CONFLICT (key) DO NOTHING")
+    cursor.execute("INSERT INTO config (key, value) VALUES ('payment_status_url', '') ON CONFLICT (key) DO NOTHING")
     cursor.execute("INSERT INTO config (key, value) VALUES ('min_withdrawal', '10') ON CONFLICT (key) DO NOTHING")
     cursor.execute("INSERT INTO config (key, value) VALUES ('max_withdrawal', '10000') ON CONFLICT (key) DO NOTHING")
     cursor.execute("INSERT INTO config (key, value) VALUES ('withdrawal_tax', '0') ON CONFLICT (key) DO NOTHING")
@@ -175,13 +177,15 @@ def get_admin_panel_text():
     max_wd = db_query("SELECT value FROM config WHERE key='max_withdrawal'", fetchone=True)[0]
     wd_tax = db_query("SELECT value FROM config WHERE key='withdrawal_tax'", fetchone=True)[0]
     api_link = db_query("SELECT value FROM config WHERE key='payment_api_url'", fetchone=True)[0]
+    status_link = db_query("SELECT value FROM config WHERE key='payment_status_url'", fetchone=True)[0]
     
     return (
         "⚙️ **Admin Panel**\n\n"
         f"📉 Min Withdrawal: `₹{min_wd}`\n"
         f"📈 Max Withdrawal: `₹{max_wd}`\n"
         f"💸 Instant WD Tax: `₹{wd_tax}`\n"
-        f"🔗 API Link: `{api_link if api_link else 'Not Set'}`"
+        f"🔗 Pay API Link: `{api_link if api_link else 'Not Set'}`\n"
+        f"🔗 Status Link: `{status_link if status_link else 'Not Set'}`"
     )
 
 def get_admin_panel_keyboard():
@@ -195,10 +199,10 @@ def get_admin_panel_keyboard():
         [InlineKeyboardButton("🏆 Top 10 Bal", callback_data="adm_top_bal"), InlineKeyboardButton("📝 Menu Text", callback_data="adm_chg_text")],
         [InlineKeyboardButton("📉 Min WD", callback_data="adm_min_wd"), InlineKeyboardButton("📈 Max WD", callback_data="adm_max_wd")],
         [InlineKeyboardButton("💸 WD Tax", callback_data="adm_wd_tax"), InlineKeyboardButton("🔗 Set Pay API", callback_data="adm_set_api")],
-        [InlineKeyboardButton("📢 Manage Channels", callback_data="adm_manage_channels"), InlineKeyboardButton("✅ Verify User", callback_data="adm_verify_user")],
-        [InlineKeyboardButton("🔍 Task Lookup", callback_data="adm_task_status_lookup"), InlineKeyboardButton("📊 Task Checkup", callback_data="adm_task_checkup")],
-        [InlineKeyboardButton("⏪ Task Pullback", callback_data="adm_task_pullback"), InlineKeyboardButton("📊 Bot Stats", callback_data="adm_stats")],
-        [InlineKeyboardButton("❌ Close", callback_data="main_menu")]
+        [InlineKeyboardButton("🔗 Set Status Link", callback_data="adm_set_status_link"), InlineKeyboardButton("✅ Verify User", callback_data="adm_verify_user")],
+        [InlineKeyboardButton("📢 Manage Channels", callback_data="adm_manage_channels"), InlineKeyboardButton("📊 Task Checkup", callback_data="adm_task_checkup")],
+        [InlineKeyboardButton("🔍 Task Lookup", callback_data="adm_task_status_lookup"), InlineKeyboardButton("⏪ Task Pullback", callback_data="adm_task_pullback")],
+        [InlineKeyboardButton("📊 Bot Stats", callback_data="adm_stats"), InlineKeyboardButton("❌ Close", callback_data="main_menu")]
     ])
 
 async def task_timeout_monitor(context: ContextTypes.DEFAULT_TYPE):
@@ -445,11 +449,31 @@ async def handle_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 formatted_url = api_url[0].replace("{upi id}", u_upi).replace("{amount}", str(actual_amt))
                 try:
                     resp = requests.get(formatted_url, timeout=15)
+                    try:
+                        resp_json = resp.json()
+                        txn_id = str(resp_json.get('txnid') or resp_json.get('transaction_id') or resp_json.get('id') or resp_json.get('order_id') or resp.text[:50])
+                    except:
+                        txn_id = resp.text[:50].strip()
                     comment = resp.text[:100]
                 except Exception as e:
+                    txn_id = "UNKNOWN"
                     comment = str(e)[:100]
                 
-                await query.message.edit_text("YOUR WITHDRAWAL IS SUCCESSFULLY PAID FROM GATEWAY ✅\n\n⚠️IF NOT RECEIVED THEN CONTACT SUPPORT")
+                status_api_url = db_query("SELECT value FROM config WHERE key='payment_status_url'", fetchone=True)[0]
+                
+                params = {
+                    'uid': user_id,
+                    'name': update.effective_user.first_name or update.effective_user.username or "User",
+                    'amt': actual_amt,
+                    'upi': u_upi,
+                    'txnid': txn_id,
+                    'api': status_api_url
+                }
+                query_string = urllib.parse.urlencode(params)
+                full_webapp_url = f"{WEBAPP_URL.rstrip('/')}/index1.html?{query_string}"
+                
+                btn = InlineKeyboardMarkup([[InlineKeyboardButton("🔍 Check payment status", web_app=WebAppInfo(url=full_webapp_url))]])
+                await query.message.edit_text("YOUR WITHDRAWAL IS SUCCESSFULLY PAID FROM GATEWAY ✅\n\n⚠️IF NOT RECEIVED THEN CONTACT SUPPORT", reply_markup=btn)
                 
                 adm_msg = f"⚡ **Instant Withdrawal Triggered**\n\nUSER ID :- `{user_id}`\nUPI ID :- `{u_upi}`\nGROSS AMOUNT :- `₹{amt}`\nACTUAL TRANSFERRED :- `₹{actual_amt}`\nTAX CUT :- `₹{amt - actual_amt}`\nTIME :- `{get_ist_time()}`\n\nAPI RESPONSE :- `{comment}`"
                 for admin in ADMIN_IDS:
@@ -561,6 +585,7 @@ async def handle_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data == "adm_task_checkup": context.user_data['state'] = 'ADM_BULK_CHECK'; await query.message.reply_text("Enter task usernames separated by comma or newline:")
     elif data == "adm_task_pullback": context.user_data['state'] = 'ADM_PULLBACK'; await query.message.reply_text("Enter Task ID or Username to Pullback:")
     elif data == "adm_set_api": context.user_data['state'] = 'ADM_SET_API'; await query.message.reply_text("Enter API Link (Use `{upi id}` and `{amount}` as placeholders):")
+    elif data == "adm_set_status_link": context.user_data['state'] = 'ADM_SET_STATUS_LINK'; await query.message.reply_text("Enter Status API Link (Use `{txnid}` as a placeholder if required by the API):")
     
     elif data == "adm_manage_channels":
         kb = [[InlineKeyboardButton("➕ Add", callback_data="adm_add_chan"), InlineKeyboardButton("❌ Rem", callback_data="adm_rem_chan")], [InlineKeyboardButton("📋 List", callback_data="adm_list_chan")], [InlineKeyboardButton("⬅️ Back", callback_data="admin_panel")]]
@@ -787,6 +812,10 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif state == 'ADM_SET_API':
         db_query("UPDATE config SET value=? WHERE key='payment_api_url'", (text,), commit=True)
         await update.message.reply_text("✅ Payment API Link Updated Successfully.")
+        
+    elif state == 'ADM_SET_STATUS_LINK':
+        db_query("UPDATE config SET value=? WHERE key='payment_status_url'", (text,), commit=True)
+        await update.message.reply_text("✅ Payment Status Link Updated Successfully.")
 
     elif state == 'ADM_SET_MIN_WD':
         try: float(text)
