@@ -479,14 +479,36 @@ async def handle_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data['state'] = 'ADM_DEL_INDIV'; await query.message.reply_text("Enter Task ID to delete:")
 
     elif data == "adm_list_task_app":
-        p = db_query("SELECT id, assigned_to FROM tasks WHERE status='pending_approval'", fetchall=True)
+        p = db_query("SELECT id, assigned_to, task_data, assigned_at FROM tasks WHERE status='pending_approval'", fetchall=True)
         if not p: await query.message.reply_text("No pending approvals."); return
-        for t in p: await query.message.reply_text(f"ID: {t[0]} by User: {t[1]}", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Approve", callback_data=f"adm_app_t_{t[0]}"), InlineKeyboardButton("Reject", callback_data=f"adm_rej_t_{t[0]}")]]))
+        for t in p: 
+            tid, assigned_to, task_data, assigned_at = t
+            try: t_user, t_pass = task_data.split(":")
+            except: t_user, t_pass = "Error", "Error"
+            
+            detail_msg = (
+                f"📝 **PENDING TASK APPROVAL**\n\n"
+                f"TASK ID :- \"{tid}\"\n"
+                f"USER ID :- \"{assigned_to}\"\n"
+                f"USERNAME :- `{t_user}`\n"
+                f"PASSWORD :- `{t_pass}`\n"
+                f"SUBMIT TIME:- \"{assigned_at if assigned_at else 'N/A'}\""
+            )
+            await query.message.reply_text(detail_msg, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Approve", callback_data=f"adm_app_t_{tid}"), InlineKeyboardButton("Reject", callback_data=f"adm_rej_t_{tid}")]]))
 
     elif data == "adm_list_wd":
         w = context.bot_data.get('withdrawals', {})
         if not w: await query.message.reply_text("No pending Manual WD."); return
-        for k, v in list(w.items()): await query.message.reply_text(f"ID: {k} User: {v['user_id']} Amt: {v['amount']}", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("App", callback_data=f"adm_app_w_{k}"), InlineKeyboardButton("Rej", callback_data=f"adm_rej_w_{k}")]]))
+        for k, v in list(w.items()): 
+            detail_wd_msg = (
+                f"🏧 **PENDING MANUAL WITHDRAWAL**\n\n"
+                f"REQUEST ID :- \"{k}\"\n"
+                f"USER ID :- \"{v['user_id']}\"\n"
+                f"UPI ID :- `{v['upi']}`\n"
+                f"AMOUNT :- \"{v['amount']}\"\n"
+                f"WITHDRAWAL TIME :- \"{v['time']}\""
+            )
+            await query.message.reply_text(detail_wd_msg, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("App", callback_data=f"adm_app_w_{k}"), InlineKeyboardButton("Rej", callback_data=f"adm_rej_w_{k}")]]))
     
     elif data.startswith(("adm_app_w_", "adm_rej_w_")):
         parts = data.split("_")
