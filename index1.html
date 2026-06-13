@@ -74,7 +74,7 @@
             width: 90px;
             height: 90px;
             border-radius: 50%;
-            border: 6px solid #10b981; /* Default to success green */
+            border: 6px solid #10b981; 
             display: flex;
             align-items: center;
             justify-content: center;
@@ -149,7 +149,7 @@
             </div>
             <div class="detail-row">
                 <span class="label">TXN ID :-</span>
-                <span class="value" id="txnText">EXTRACTING...</span>
+                <span class="value" id="txnText">FETCHING...</span>
             </div>
         </div>
     </div>
@@ -167,7 +167,6 @@
             const name = urlParams.get('name') || 'User';
             const amt = urlParams.get('amt') || '0';
             const upi = urlParams.get('upi') || 'N/A';
-            // Decode URI to fix any broken JSON formatting sent via URL
             const rawTxnid = decodeURIComponent(urlParams.get('txnid') || '').trim();
             const apiTemplate = decodeURIComponent(urlParams.get('api') || '');
 
@@ -182,30 +181,47 @@
             const statusText = document.getElementById('statusText');
             const txnText = document.getElementById('txnText');
 
-            // 1. DEFAULT TO SUCCESS (Since the bot only shows this button on successful payout calls)
-            let currentStatus = 'SUCCESS';
-            let currentTxn = 'Processing / Check Bank';
+            let currentStatus = 'SUCCESS'; // Default expectation
+            let currentTxn = '';
 
-            // 2. AGGRESSIVE TXN ID EXTRACTION
-            // This Regex hunts for any 12 to 35 digit continuous number anywhere in the raw text/JSON
-            const txnMatch = rawTxnid.match(/\d{12,35}/);
-            
-            if (txnMatch) {
-                // Instantly grabs the exact order_id/utr (e.g., 521021025449514852481015)
-                currentTxn = txnMatch[0];
-            } else if (rawTxnid && !rawTxnid.includes('{')) {
-                // If there's no long number, but the text is clean (no messy JSON), use it
-                currentTxn = rawTxnid;
+            // 1. SMART EXTRACTION (Try parsing as exact JSON first)
+            try {
+                const parsedData = JSON.parse(rawTxnid);
+                
+                // Extract Status safely
+                if (parsedData.bank_status) currentStatus = String(parsedData.bank_status).toUpperCase();
+                else if (parsedData.status) currentStatus = String(parsedData.status).toUpperCase();
+                
+                // Extract EXACT TXN ID safely (Prioritize Full2SMS order_id or utr)
+                if (parsedData.utr && parsedData.utr !== 'null' && parsedData.utr !== '') {
+                    currentTxn = String(parsedData.utr);
+                } else if (parsedData.order_id && parsedData.order_id !== 'null' && parsedData.order_id !== '') {
+                    currentTxn = String(parsedData.order_id);
+                } else if (parsedData.txnid && parsedData.txnid !== 'null' && parsedData.txnid !== '') {
+                    currentTxn = String(parsedData.txnid);
+                }
+            } catch (error) {
+                // 2. FALLBACK: If it is not JSON, scan the text
+                const cleanText = rawTxnid.toUpperCase().replace(/\s/g, '');
+                
+                if (cleanText.includes('FAIL') || cleanText.includes('ERROR') || cleanText.includes('REJECT')) {
+                    currentStatus = 'FAILED';
+                } else if (cleanText.includes('PENDING')) {
+                    currentStatus = 'PENDING';
+                }
+
+                // Aggressive Scanner: Look for alphanumeric strings between 8 to 35 characters
+                const txnMatch = rawTxnid.match(/[A-Z0-9]{8,35}/i);
+                if (txnMatch) {
+                    currentTxn = txnMatch[0];
+                } else if (rawTxnid && !rawTxnid.includes('{')) {
+                    currentTxn = rawTxnid; // Use plain text if it's clean
+                }
             }
 
-            // 3. CHECK FOR EXPLICIT FAILURE
-            // In case the API hit was registered but returned an explicit failure message
-            const cleanText = rawTxnid.toUpperCase().replace(/\s/g, '');
-            if (cleanText.includes('FAIL') || cleanText.includes('ERROR') || cleanText.includes('REJECT')) {
-                currentStatus = 'FAILED';
-                if (!txnMatch) currentTxn = 'N/A';
-            } else if (cleanText.includes('PENDING')) {
-                currentStatus = 'PENDING';
+            // Final fallback if extraction was completely empty
+            if (!currentTxn || currentTxn === '') {
+                currentTxn = 'Processing...';
             }
 
             // Function to paint the UI colors and text
@@ -231,15 +247,12 @@
                 }
             }
 
-            // Instantly load the safe extracted data
+            // Load the UI immediately using the extracted data
             updatePageUI(currentStatus, currentTxn);
 
-            // 4. LIVE API BACKGROUND FETCH (Optional safety net)
-            // Use the perfectly extracted TXN ID as the ID to query, instead of the messy JSON
-            const queryId = txnMatch ? txnMatch[0] : rawTxnid;
-
-            if (apiTemplate && queryId && !queryId.includes('{')) {
-                const apiUrl = apiTemplate.replace('{txnid}', encodeURIComponent(queryId));
+            // 3. LIVE API FETCH (Optional backup to verify bank processing)
+            if (apiTemplate && currentTxn && currentTxn !== 'Processing...') {
+                const apiUrl = apiTemplate.replace('{txnid}', encodeURIComponent(currentTxn));
                 
                 fetch(apiUrl)
                     .then(res => res.json())
@@ -247,11 +260,9 @@
                         let liveStatus = currentStatus;
                         let liveTxn = currentTxn;
 
-                        // Target the exact Full2SMS status parameters
                         if (json.bank_status) liveStatus = String(json.bank_status);
                         else if (json.status) liveStatus = String(json.status);
 
-                        // Target exact Full2SMS UTR/TXN parameters
                         if (json.utr && json.utr !== 'null' && json.utr !== '') liveTxn = String(json.utr);
                         else if (json.bank_reference) liveTxn = String(json.bank_reference);
                         else if (json.order_id) liveTxn = String(json.order_id);
@@ -259,9 +270,8 @@
                         updatePageUI(liveStatus, liveTxn);
                     })
                     .catch(err => {
-                        // If browser blocks the API via CORS, silently fail. 
-                        // The UI will perfectly keep the Regex-extracted TXN ID and SUCCESS status!
-                        console.log("Live fetch blocked by browser CORS, relying on Regex extracted status.");
+                        // Keeps our perfectly extracted TXN ID on screen even if the browser blocks the fetch
+                        console.log("Live fetch skipped or blocked, keeping extracted data.");
                     });
             }
         });
