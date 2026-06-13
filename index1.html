@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Payment Status</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            /* Vibrant background gradient */
+            background: linear-gradient(135deg, #a18cd1 0%, #fbc2eb 100%);
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            color: #333;
+            overflow: hidden;
+        }
+
+        /* Top Left Profile Section */
+        .profile-header {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            background: rgba(255, 255, 255, 0.4);
+            padding: 10px 16px;
+            border-radius: 12px;
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
+            box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+            border: 1px solid rgba(255, 255, 255, 0.5);
+        }
+        .profile-name {
+            font-size: 1.1rem;
+            font-weight: 800;
+            color: #1a202c;
+            margin-bottom: 2px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .profile-uid {
+            font-size: 0.85rem;
+            font-weight: 600;
+            color: #4a5568;
+            font-family: monospace;
+        }
+
+        /* Center Card */
+        .main-card {
+            background: #ffffff;
+            border-radius: 24px;
+            padding: 35px 25px;
+            width: 90%;
+            max-width: 400px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.15);
+            text-align: center;
+            animation: popIn 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+        }
+
+        @keyframes popIn {
+            0% { transform: scale(0.8); opacity: 0; }
+            100% { transform: scale(1); opacity: 1; }
+        }
+
+        /* Status Circle */
+        .status-circle {
+            width: 90px;
+            height: 90px;
+            border-radius: 50%;
+            border: 6px solid #f59e0b; /* Default yellow */
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto 25px auto;
+            font-size: 40px;
+            background: #fff;
+            box-shadow: 0 8px 16px rgba(0,0,0,0.1);
+            transition: all 0.4s ease;
+        }
+
+        /* Details Section */
+        .details-container {
+            text-align: left;
+            background: #f8fafc;
+            padding: 20px;
+            border-radius: 16px;
+            border: 1px solid #e2e8f0;
+        }
+        .detail-row {
+            margin-bottom: 16px;
+            display: flex;
+            align-items: center;
+        }
+        .detail-row:last-child {
+            margin-bottom: 0;
+        }
+        .label {
+            font-size: 0.85rem;
+            font-weight: 800;
+            color: #64748b;
+            width: 85px;
+            flex-shrink: 0;
+        }
+        .value {
+            font-size: 1rem;
+            font-weight: 700;
+            color: #0f172a;
+            word-break: break-all;
+        }
+
+        /* Status Specific Colors */
+        .color-pending { color: #f59e0b; }
+        .color-success { color: #10b981; }
+        .color-failed { color: #ef4444; }
+    </style>
+</head>
+<body>
+
+    <div class="profile-header">
+        <div id="userName" class="profile-name">LOADING...</div>
+        <div id="userId" class="profile-uid">ID: ...</div>
+    </div>
+
+    <div class="main-card">
+        
+        <div class="status-circle" id="statusCircle">
+            <i class="fas fa-hourglass-half color-pending" id="statusIcon"></i>
+        </div>
+
+        <div class="details-container">
+            <div class="detail-row">
+                <span class="label">STATUS :-</span>
+                <span class="value color-pending" id="statusText">FETCHING...</span>
+            </div>
+            <div class="detail-row">
+                <span class="label">AMOUNT :-</span>
+                <span class="value" id="amtText">...</span>
+            </div>
+            <div class="detail-row">
+                <span class="label">UPI ID :-</span>
+                <span class="value" id="upiText">...</span>
+            </div>
+            <div class="detail-row">
+                <span class="label">UTR :-</span>
+                <span class="value" id="utrText">FETCHING...</span>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener("DOMContentLoaded", () => {
+            // Initialize Telegram WebApp
+            if (window.Telegram && window.Telegram.WebApp) {
+                Telegram.WebApp.ready();
+                Telegram.WebApp.expand();
+            }
+
+            // Extract URL Parameters
+            const urlParams = new URLSearchParams(window.location.search);
+            const uid = urlParams.get('uid') || 'Unknown';
+            const name = urlParams.get('name') || 'User';
+            const amt = urlParams.get('amt') || '0';
+            const upi = urlParams.get('upi') || 'Unknown';
+            const txnid = urlParams.get('txnid') || '';
+            const apiTemplate = urlParams.get('api') || '';
+
+            // Populate static UI elements
+            document.getElementById('userName').innerText = name;
+            document.getElementById('userId').innerText = 'ID: ' + uid;
+            document.getElementById('amtText').innerText = '₹' + amt;
+            document.getElementById('upiText').innerText = upi;
+
+            const statusCircle = document.getElementById('statusCircle');
+            const statusIcon = document.getElementById('statusIcon');
+            const statusText = document.getElementById('statusText');
+            const utrText = document.getElementById('utrText');
+
+            // Function to update the UI based on status
+            function updateUI(status, utr) {
+                const upperStatus = status.toUpperCase();
+                utrText.innerText = utr || 'N/A';
+                statusText.innerText = upperStatus;
+
+                if (upperStatus.includes('SUCCESS') || upperStatus === 'PAID') {
+                    // Success UI
+                    statusCircle.style.borderColor = '#10b981';
+                    statusIcon.className = 'fas fa-check color-success';
+                    statusText.className = 'value color-success';
+                    statusText.innerText = 'SUCCESS';
+                } else if (upperStatus.includes('FAIL') || upperStatus.includes('ERROR') || upperStatus.includes('REJECT')) {
+                    // Failed UI
+                    statusCircle.style.borderColor = '#ef4444';
+                    statusIcon.className = 'fas fa-times color-failed';
+                    statusText.className = 'value color-failed';
+                    statusText.innerText = 'FAILED';
+                } else {
+                    // Pending UI
+                    statusCircle.style.borderColor = '#f59e0b';
+                    statusIcon.className = 'fas fa-hourglass-half color-pending';
+                    statusText.className = 'value color-pending';
+                    statusText.innerText = 'PENDING';
+                }
+            }
+
+            // Fetch data if API link is provided
+            if (apiTemplate && txnid) {
+                // Replace {txnid} placeholder with the actual transaction ID
+                const apiUrl = apiTemplate.replace('{txnid}', txnid);
+                
+                fetch(apiUrl)
+                    .then(response => response.text())
+                    .then(data => {
+                        try {
+                            const json = JSON.parse(data);
+                            // Checks common JSON keys for status and UTR based on standard Indian Payment Gateways
+                            const finalStatus = json.status || json.state || json.result || 'PENDING';
+                            const finalUtr = json.utr || json.ref_id || json.bank_ref || json.rrn || txnid;
+                            updateUI(finalStatus, finalUtr);
+                        } catch(e) {
+                            // Fallback if the API returns plain text instead of JSON
+                            const textData = data.toUpperCase();
+                            let finalStatus = 'PENDING';
+                            if (textData.includes('SUCCESS') || textData.includes('PAID')) finalStatus = 'SUCCESS';
+                            else if (textData.includes('FAIL')) finalStatus = 'FAILED';
+                            
+                            updateUI(finalStatus, txnid);
+                        }
+                    })
+                    .catch(err => {
+                        // Network error or CORS issue fallback
+                        updateUI('PENDING', txnid);
+                    });
+            } else {
+                // No API link set by admin, default to showing the raw transaction ID
+                updateUI('PENDING', txnid || 'Awaiting Response');
+            }
+        });
+    </script>
+</body>
+</html>
