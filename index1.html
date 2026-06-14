@@ -4,9 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Payment Status</title>
-    <!-- Telegram Web App Script -->
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
-    <!-- FontAwesome for Icons -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
         * {
@@ -107,7 +105,7 @@
             font-size: 0.82rem;
             font-weight: 800;
             color: #64748b;
-            width: 125px; /* Expanded layout to support gateway labels cleanly */
+            width: 125px; 
             flex-shrink: 0;
             letter-spacing: 0.3px;
         }
@@ -127,21 +125,17 @@
 </head>
 <body>
 
-    <!-- Profile Corner -->
     <div class="profile-header">
         <div id="userName" class="profile-name">LOADING...</div>
         <div id="userId" class="profile-uid">ID: ...</div>
     </div>
 
-    <!-- Main Content -->
     <div class="main-card">
         
-        <!-- Icon Circle -->
         <div class="status-circle" id="statusCircle">
             <i class="fas fa-check color-success" id="statusIcon"></i>
         </div>
 
-        <!-- Transaction Details -->
         <div class="details-container">
             <div class="detail-row">
                 <span class="label">STATUS :-</span>
@@ -196,7 +190,6 @@
 
             let currentStatus = 'SUCCESS'; 
             let currentTxn = '';
-            let currentGateway = 'Processing...';
 
             // 1. SMART EXTRACTION (Try JSON Parse)
             if (rawTxnid.includes('{') || rawTxnid.includes('[')) {
@@ -212,18 +205,12 @@
                     if (parsedData.utr && parsedData.utr !== 'null' && parsedData.utr !== '') currentTxn = String(parsedData.utr);
                     else if (parsedData.order_id && parsedData.order_id !== 'null' && parsedData.order_id !== '') currentTxn = String(parsedData.order_id);
                     else if (parsedData.txnid && parsedData.txnid !== 'null' && parsedData.txnid !== '') currentTxn = String(parsedData.txnid);
-
-                    // Scrape explicit textual response properties inside gateway JSON payloads
-                    if (parsedData.message) currentGateway = String(parsedData.message);
-                    else if (parsedData.msg) currentGateway = String(parsedData.msg);
-                    else if (parsedData.remark) currentGateway = String(parsedData.remark);
-                    else if (parsedData.response) currentGateway = String(parsedData.response);
                 } catch (e) {
                     // Ignore parsing issues
                 }
             }
 
-            // 2. FALLBACK SCANNER: For transaction IDs passed cleanly or via raw responses
+            // 2. FALLBACK SCANNER
             if (!currentTxn || currentTxn === '') {
                 const txnMatch = rawTxnid.match(/[a-zA-Z0-9]{10,35}/);
                 if (txnMatch) {
@@ -231,11 +218,6 @@
                 } else if (rawTxnid && !rawTxnid.includes('{')) {
                     currentTxn = rawTxnid; 
                 }
-            }
-
-            // If gateway response wasn't parsed from JSON structure, use raw parameter message directly
-            if (currentGateway === 'Processing...' && rawTxnid && !rawTxnid.includes('{')) {
-                currentGateway = rawTxnid;
             }
 
             // Global Explicit Status Overwrite based on incoming strings
@@ -248,32 +230,45 @@
 
             if (!currentTxn || currentTxn === '') currentTxn = 'N/A';
 
-            // Function to paint the UI colors and text fields
-            function updatePageUI(status, txnId, gatewayMessage) {
+            // Function to paint the UI colors and custom text fields
+            function updatePageUI(status, txnId) {
                 const checkStatus = status.toUpperCase().replace(/\s/g, '');
                 txnText.innerText = txnId;
-                gatewayText.innerText = gatewayMessage;
 
                 if (checkStatus.includes('SUCCESS') || checkStatus.includes('PAID') || checkStatus.includes('COMPLETED')) {
                     statusCircle.style.borderColor = '#10b981';
                     statusIcon.className = 'fas fa-check color-success';
                     statusText.className = 'value color-success';
                     statusText.innerText = 'SUCCESS';
+                    
+                    // Gateway Response logic for Success
+                    gatewayText.innerText = 'Money sent to ' + upi;
+                    gatewayText.style.color = '#10b981';
+                    
                 } else if (checkStatus.includes('FAIL') || checkStatus.includes('ERROR') || checkStatus.includes('REJECT') || checkStatus.includes('INSUFFICIENT')) {
                     statusCircle.style.borderColor = '#ef4444';
                     statusIcon.className = 'fas fa-times color-failed';
                     statusText.className = 'value color-failed';
                     statusText.innerText = 'FAILED';
+                    
+                    // Gateway Response logic for Failed
+                    gatewayText.innerText = 'Insufficient balance, contact support';
+                    gatewayText.style.color = '#ef4444';
+                    
                 } else {
                     statusCircle.style.borderColor = '#f59e0b';
                     statusIcon.className = 'fas fa-hourglass-half color-pending';
                     statusText.className = 'value color-pending';
                     statusText.innerText = 'PENDING';
+                    
+                    // Gateway Response logic for Pending
+                    gatewayText.innerText = 'Processing...';
+                    gatewayText.style.color = '#f59e0b';
                 }
             }
 
             // Immediate initial load mapping
-            updatePageUI(currentStatus, currentTxn, currentGateway);
+            updatePageUI(currentStatus, currentTxn);
 
             // 3. LIVE BACKGROUND FETCH VIA RE-VERIFICATION LINK
             const queryId = currentTxn !== 'N/A' ? currentTxn : rawTxnid;
@@ -286,7 +281,6 @@
                     .then(json => {
                         let liveStatus = currentStatus;
                         let liveTxn = currentTxn;
-                        let liveGateway = currentGateway;
 
                         if (json.bank_status) liveStatus = String(json.bank_status);
                         else if (json.status) liveStatus = String(json.status);
@@ -295,13 +289,7 @@
                         else if (json.bank_reference) liveTxn = String(json.bank_reference);
                         else if (json.order_id) liveTxn = String(json.order_id);
 
-                        // Capture background API status response text dynamically
-                        if (json.message) liveGateway = String(json.message);
-                        else if (json.msg) liveGateway = String(json.msg);
-                        else if (json.remark) liveGateway = String(json.remark);
-                        else if (json.response) liveGateway = String(json.response);
-
-                        updatePageUI(liveStatus, liveTxn, liveGateway);
+                        updatePageUI(liveStatus, liveTxn);
                     })
                     .catch(err => {
                         console.log("Live background update skipped, fallback preserved.");
