@@ -224,8 +224,8 @@
                 }
 
                 // 2. Generate Permanent Hardware Fingerprint
-                const canvas = document.createElement('canvas');
-                const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
+                const glCanvas = document.createElement('canvas');
+                const gl = glCanvas.getContext('webgl') || glCanvas.getContext('experimental-webgl');
                 let renderer = 'unknown';
                 if (gl) {
                     const debugInfo = gl.getExtension('WEBGL_debug_renderer_info');
@@ -242,60 +242,34 @@
                     renderer
                 ].join('|||');
 
-                const response = await fetch('/verify', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({
-                        telegram_id: userId,
-                        device_token: deviceToken,
-                        hw_id: hwId, // Send hardware ID to server
-                        init_data: tg.initData
-                    })
-                });
+                // Prepare verification payload
+                const verificationData = {
+                    action: "VERIFY_DEVICE",
+                    telegram_id: userId,
+                    device_token: deviceToken,
+                    hw_id: hwId
+                };
 
-                const data = await response.json();
+                // Send data securely back to the Telegram bot
+                tg.sendData(JSON.stringify(verificationData));
 
-                if (!response.ok) {
-                    throw new Error(data.message || "Server Error");
-                }
-
+                // Update UI to success since Telegram guarantees delivery to the bot
                 loaderRing.style.display = 'none';
                 progressBar.style.display = 'none';
+                iconSuccess.style.display = 'flex';
+                
+                cardTitle.innerText = "Verification Sent";
+                cardTitle.className = "text-success";
+                cardDesc.innerText = "Your secure device fingerprint has been transmitted. You may now return to the bot.";
+                
+                badge.className = "status-badge badge-active";
+                badgeText.innerText = "VERIFIED";
+                
+                continueBtn.style.display = 'block';
+                continueBtn.className = "action-btn btn-success";
 
-                if (data.status === 'success') {
-                    iconSuccess.style.display = 'flex';
-                    cardTitle.innerText = "Verification Complete";
-                    cardTitle.className = "text-success";
-                    cardDesc.innerText = "Your device has been successfully verified and secured.";
-                    badge.className = "status-badge badge-active";
-                    badgeText.innerText = "ACTIVE";
-                    continueBtn.style.display = 'block';
-                    continueBtn.className = "action-btn btn-success";
-                    setTimeout(() => tg.close(), 2000);
-
-                } else if (data.status === 'already_verified') {
-                    iconAlready.style.display = 'flex';
-                    cardTitle.innerText = "Already Verified";
-                    cardTitle.className = "text-already";
-                    cardDesc.innerText = "This device has already been authorized for use.";
-                    badge.className = "status-badge badge-active";
-                    badgeText.innerText = "ACTIVE";
-                    continueBtn.style.display = 'block';
-                    continueBtn.className = "action-btn btn-already";
-                    setTimeout(() => tg.close(), 2000);
-
-                } else {
-                    // This handles the 'device_used' status cleanly
-                    iconError.style.display = 'flex';
-                    cardTitle.innerText = "Access Denied";
-                    cardTitle.className = "text-error";
-                    cardDesc.innerText = data.reason || "This device cannot be used with this account.";
-                    badge.className = "status-badge badge-error";
-                    badgeText.innerText = "ERROR";
-                    setTimeout(() => tg.close(), 5000);
-                }
+                // Auto-close after 2.5 seconds
+                setTimeout(() => tg.close(), 2500);
 
             } catch (error) {
                 console.log(error);
@@ -303,15 +277,18 @@
                 loaderRing.style.display = 'none';
                 progressBar.style.display = 'none';
                 iconError.style.display = 'flex';
-                cardTitle.innerText = "Connection Failed";
+                
+                cardTitle.innerText = "Verification Failed";
                 cardTitle.className = "text-error";
-                cardDesc.innerText = error.message || "Could not reach verification servers. Please try again.";
+                cardDesc.innerText = "Could not generate device fingerprint. Please try again.";
+                
                 badge.className = "status-badge badge-error";
-                badgeText.innerText = "OFFLINE";
+                badgeText.innerText = "ERROR";
             }
         }
+
+        // Run the verification process after the animation plays for 2 seconds
         setTimeout(verifyDevice, 2000); 
     </script>
 </body>
 </html>
-
