@@ -80,7 +80,6 @@ def init_db():
         message_id BIGINT
     )''')
     
-    # Try adding new columns if the tables already existed
     try:
         cursor.execute('ALTER TABLE tasks ADD COLUMN message_id BIGINT')
         conn.commit()
@@ -164,11 +163,9 @@ def get_channel_verification_keyboard():
     keyboard.append([InlineKeyboardButton("Verify Channels", callback_data="check_membership")])
     return InlineKeyboardMarkup(keyboard)
 
-def get_webapp_verify_keyboard(bot_username, user):
-    safe_name = urllib.parse.quote(user.first_name or user.username or "User")
-    
-    # Injects the bot username and precise user details so the WebApp NEVER shows GUEST
-    cache_buster_url = f"{WEBAPP_URL.rstrip('/')}/index.html?v={int(datetime.now().timestamp())}&bot={bot_username}&name={safe_name}&uid={user.id}"
+def get_webapp_verify_keyboard(bot_username, safe_name, user_id):
+    # Generates a dynamic URL so Telegram doesn't cache it, and passes the user data securely to index.html
+    cache_buster_url = f"{WEBAPP_URL.rstrip('/')}/index.html?v={int(datetime.now().timestamp())}&bot={bot_username}&name={safe_name}&uid={user_id}"
     
     # Beautiful Inline Button restored!
     keyboard = [
@@ -247,7 +244,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if not user:
-        # Standard Refer logic
         ref_id = None
         if context.args and context.args[0].isdigit() and int(context.args[0]) != user_id:
             ref_id = int(context.args[0])
@@ -261,11 +257,11 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         device_verified = user[1]
 
-    # Handle the automatic Deep Link Redirect from the WebApp for Device Verification
+    # Process Automatic Deep Link Validation sent by WebApp
     if context.args and context.args[0].startswith("v_"):
         hw_id = context.args[0][2:]
         
-        # Security Block: Check if this exact physical device is already linked to another account
+        # Multiple Account Check: Is this device already logged into another account?
         existing_device = db_query("SELECT user_id FROM users WHERE hw_id = ? AND user_id != ?", (hw_id, user_id), fetchone=True)
         if existing_device:
             await update.message.reply_text(
@@ -274,12 +270,12 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
             
-        # Process Verification
+        # Verify user and save their device hardware ID
         db_query("UPDATE users SET device_verified=1, hw_id=? WHERE user_id=?", (hw_id, user_id), commit=True)
         device_verified = 1
         await update.message.reply_text("✅ *Device Verified Successfully!*", parse_mode="Markdown")
 
-    # Final Menu Display
+    # If verified, trigger main menu automatically
     if device_verified == 1:
         menu_text = db_query("SELECT value FROM config WHERE key='menu_text'", fetchone=True)[0]
         await update.message.reply_text(menu_text, reply_markup=get_main_menu_keyboard(user_id))
@@ -289,10 +285,13 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("⚠️ Join channels first:", reply_markup=get_channel_verification_keyboard())
         return
 
+    bot_user = await context.bot.get_me()
+    safe_name = urllib.parse.quote(update.effective_user.first_name or update.effective_user.username or "User")
+
     await update.message.reply_text(
         "🔒 *Verify Yourself To Start Bot*\n\nPlease click the button below to complete the device security check.",
         parse_mode="Markdown",
-        reply_markup=get_webapp_verify_keyboard(context.bot.username, update.effective_user)
+        reply_markup=get_webapp_verify_keyboard(bot_user.username, safe_name, user_id)
     )
 
 async def handle_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -307,12 +306,14 @@ async def handle_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
             device_verified = user[0] if user else 0
             
             if not device_verified and user_id not in ADMIN_IDS:
+                bot_user = await context.bot.get_me()
+                safe_name = urllib.parse.quote(query.from_user.first_name or query.from_user.username or "User")
                 await query.message.delete()
                 await context.bot.send_message(
                     chat_id=user_id, 
                     text="✅ Channels Joined!\n\n🔒 *Verify Yourself To Start Bot*\n\nPlease click the button below to complete the device security check.", 
                     parse_mode="Markdown", 
-                    reply_markup=get_webapp_verify_keyboard(context.bot.username, query.from_user)
+                    reply_markup=get_webapp_verify_keyboard(bot_user.username, safe_name, user_id)
                 )
             else:
                 menu_text = db_query("SELECT value FROM config WHERE key='menu_text'", fetchone=True)[0]
@@ -646,9 +647,11 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if user[0] == 1:
         return
     if user[1] == 0 and user_id not in ADMIN_IDS:
+        bot_user = await context.bot.get_me()
+        safe_name = urllib.parse.quote(update.effective_user.first_name or update.effective_user.username or "User")
         await update.message.reply_text(
             "🔒 Please verify your device using /start first.",
-            reply_markup=get_webapp_verify_keyboard(context.bot.username, update.effective_user)
+            reply_markup=get_webapp_verify_keyboard(bot_user.username, safe_name, user_id)
         )
         return
     if not await check_user_joined_channels(context.bot, user_id) and user_id not in ADMIN_IDS:
