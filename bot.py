@@ -29,7 +29,7 @@ TOKEN = os.getenv('BOT_TOKEN')
 if not TOKEN:
     raise ValueError("No BOT_TOKEN provided in environment variables!")
 
-DATABASE_URL = os.getenv('DATABASE_URL')
+DATABASE_URL = "postgresql://postgres:wAjYOYPUfiPZWfgYddgjjNfmDhqJfngj@postgres.railway.internal:5432/railway"
 if not DATABASE_URL:
     raise ValueError("No DATABASE_URL provided in environment variables!")
 
