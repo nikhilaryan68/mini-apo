@@ -164,10 +164,10 @@ def get_channel_verification_keyboard():
     return InlineKeyboardMarkup(keyboard)
 
 def get_webapp_verify_keyboard(bot_username, safe_name, user_id):
-    # Generates a dynamic URL so Telegram doesn't cache it, and passes the user data securely to index.html
+    # Generates dynamic URL, bypassing Telegram cache & passes user data cleanly
     cache_buster_url = f"{WEBAPP_URL.rstrip('/')}/index.html?v={int(datetime.now().timestamp())}&bot={bot_username}&name={safe_name}&uid={user_id}"
     
-    # Beautiful Inline Button restored!
+    # Beautiful Inline Button restored safely
     keyboard = [
         [InlineKeyboardButton("✅ Verify Your Device", web_app=WebAppInfo(url=cache_buster_url))]
     ]
@@ -257,11 +257,11 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         device_verified = user[1]
 
-    # Process Automatic Deep Link Validation sent by WebApp
+    # Handle the automatic Deep Link Redirect from the WebApp for Device Verification
     if context.args and context.args[0].startswith("v_"):
         hw_id = context.args[0][2:]
         
-        # Multiple Account Check: Is this device already logged into another account?
+        # Security Block: Strictly checks if this token is already verified by another user
         existing_device = db_query("SELECT user_id FROM users WHERE hw_id = ? AND user_id != ?", (hw_id, user_id), fetchone=True)
         if existing_device:
             await update.message.reply_text(
@@ -270,12 +270,12 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
             
-        # Verify user and save their device hardware ID
+        # Verify user and save their device hardware ID securely
         db_query("UPDATE users SET device_verified=1, hw_id=? WHERE user_id=?", (hw_id, user_id), commit=True)
         device_verified = 1
         await update.message.reply_text("✅ *Device Verified Successfully!*", parse_mode="Markdown")
 
-    # If verified, trigger main menu automatically
+    # If verified, trigger main menu automatically without asking again
     if device_verified == 1:
         menu_text = db_query("SELECT value FROM config WHERE key='menu_text'", fetchone=True)[0]
         await update.message.reply_text(menu_text, reply_markup=get_main_menu_keyboard(user_id))
