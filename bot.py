@@ -5,6 +5,7 @@ import os
 import random
 import requests
 import urllib.parse
+import json
 from datetime import datetime, timedelta, timezone
 from telegram import (
     Update, 
@@ -157,8 +158,12 @@ def get_channel_verification_keyboard():
     return InlineKeyboardMarkup(keyboard)
 
 def get_webapp_verify_keyboard():
+    # Cache buster to bypass Telegram caching issues and force it to load the fresh index.html
+    cache_buster_url = f"{WEBAPP_URL.rstrip('/')}/index.html?v={int(datetime.now().timestamp())}"
+    
+    # Must be a ReplyKeyboardMarkup to support the secure Telegram.WebApp.sendData()
     keyboard = [
-        [KeyboardButton("Verify Your Device", web_app=WebAppInfo(url=WEBAPP_URL))]
+        [KeyboardButton("Verify Your Device", web_app=WebAppInfo(url=cache_buster_url))]
     ]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
@@ -205,7 +210,17 @@ def get_admin_panel_keyboard():
         [InlineKeyboardButton("📊 Bot Stats", callback_data="adm_stats"), InlineKeyboardButton("❌ Close", callback_data="main_menu")]
     ])
 
-import json
+async def task_timeout_monitor(context: ContextTypes.DEFAULT_TYPE):
+    cutoff = (datetime.now() - timedelta(minutes=30)).isoformat()
+    expired = db_query("SELECT id, assigned_to, message_id FROM tasks WHERE status = 'assigned' AND assigned_at < ?", (cutoff,), fetchall=True)
+    for tid, uid, mid in expired:
+        reset_task_password(tid)
+        db_query("UPDATE tasks SET status = 'available', assigned_to = NULL, assigned_at = NULL, message_id = NULL WHERE id = ?", (tid,), commit=True)
+        if mid:
+            try: await context.bot.delete_message(chat_id=uid, message_id=mid)
+            except: pass
+        try: await context.bot.send_message(chat_id=uid, text="⚠️ Task expired (30m limit). It has been removed. Please request a new task.")
+        except: pass
 
 async def handle_webapp_data(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.message and update.message.web_app_data:
@@ -227,19 +242,6 @@ async def handle_webapp_data(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 )
         except Exception as e:
             logger.error(f"WebApp Data Error: {e}")
-
-
-async def task_timeout_monitor(context: ContextTypes.DEFAULT_TYPE):
-    cutoff = (datetime.now() - timedelta(minutes=30)).isoformat()
-    expired = db_query("SELECT id, assigned_to, message_id FROM tasks WHERE status = 'assigned' AND assigned_at < ?", (cutoff,), fetchall=True)
-    for tid, uid, mid in expired:
-        reset_task_password(tid)
-        db_query("UPDATE tasks SET status = 'available', assigned_to = NULL, assigned_at = NULL, message_id = NULL WHERE id = ?", (tid,), commit=True)
-        if mid:
-            try: await context.bot.delete_message(chat_id=uid, message_id=mid)
-            except: pass
-        try: await context.bot.send_message(chat_id=uid, text="⚠️ Task expired (30m limit). It has been removed. Please request a new task.")
-        except: pass
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id, username = update.effective_user.id, update.effective_user.username or "Unknown"
@@ -284,7 +286,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     await update.message.reply_text(
-        "🔒 *Verify Yourself To Start Bot*\n\nPlease click the button below to complete a quick device security check.",
+        "🔒 *Verify Yourself To Start Bot*\n\nPlease click the button below on your keyboard to complete the device security check.",
         parse_mode="Markdown",
         reply_markup=get_webapp_verify_keyboard()
     )
@@ -301,7 +303,13 @@ async def handle_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
             device_verified = user[0] if user else 0
             
             if not device_verified and user_id not in ADMIN_IDS:
-                await query.message.edit_text("✅ Channels Joined!\n\n🔒 *Verify Yourself To Start Bot*\n\nPlease click the button below to complete the device security check.", parse_mode="Markdown", reply_markup=get_webapp_verify_keyboard())
+                await query.message.delete()
+                await context.bot.send_message(
+                    chat_id=user_id, 
+                    text="✅ Channels Joined!\n\n🔒 *Verify Yourself To Start Bot*\n\nPlease click the button below on your keyboard to complete the device security check.", 
+                    parse_mode="Markdown", 
+                    reply_markup=get_webapp_verify_keyboard()
+                )
             else:
                 menu_text = db_query("SELECT value FROM config WHERE key='menu_text'", fetchone=True)[0]
                 await query.message.delete()
@@ -634,7 +642,10 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if user[0] == 1:
         return
     if user[1] == 0 and user_id not in ADMIN_IDS:
-        await update.message.reply_text("🔒 Please verify your device using /start first.")
+        await update.message.reply_text(
+            "🔒 Please verify your device using /start first.",
+            reply_markup=get_webapp_verify_keyboard()
+        )
         return
     if not await check_user_joined_channels(context.bot, user_id) and user_id not in ADMIN_IDS:
         await update.message.reply_text("⚠️ Join channels first to continue.", reply_markup=get_channel_verification_keyboard())
@@ -901,8 +912,8 @@ def main():
     app.job_queue.run_repeating(task_timeout_monitor, interval=60)
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CallbackQueryHandler(handle_callbacks))
+    app.add_handler(MessageHandler(filters.StatusUpdate.WEB_APP_DATA, handle_webapp_data))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
     app.run_polling()
-    app.add_handler(MessageHandler(filters.StatusUpdate.WEB_APP_DATA, handle_webapp_data))
 
 if __name__ == '__main__': main()
