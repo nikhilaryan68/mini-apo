@@ -1,5 +1,6 @@
 import logging
 import psycopg2
+from psycopg2 import pool
 import asyncio
 import os
 import random
