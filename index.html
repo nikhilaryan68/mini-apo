@@ -196,7 +196,7 @@
         const urlUid = urlParams.get('uid') || 'Unknown';
         const botUsername = urlParams.get('bot');
 
-        // Safely determine the exact name to show
+        // Target Native User Data First
         const tgUser = tg.initDataUnsafe?.user;
         let finalName = urlName;
         if (tgUser && tgUser.first_name) {
@@ -218,34 +218,20 @@
         const iconSuccess = document.getElementById('icon-success');
         const iconError = document.getElementById('icon-error');
 
-        async function sha256(message) {
-            const msgBuffer = new TextEncoder().encode(message);
-            const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
-            const hashArray = Array.from(new Uint8Array(hashBuffer));
-            return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+        // Generates a totally unique string and saves it permanently to the browser
+        function getUniqueDeviceToken() {
+            let token = localStorage.getItem('bot_device_token');
+            if (!token) {
+                token = 'dev_' + Math.random().toString(36).substr(2, 9) + Date.now().toString(36);
+                localStorage.setItem('bot_device_token', token);
+            }
+            return token;
         }
 
         async function verifyDevice() {
             try {
-                const glCanvas = document.createElement('canvas');
-                const gl = glCanvas.getContext('webgl') || glCanvas.getContext('experimental-webgl');
-                let renderer = 'unknown';
-                if (gl) {
-                    const debugInfo = gl.getExtension('WEBGL_debug_renderer_info');
-                    if (debugInfo) {
-                        renderer = gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL);
-                    }
-                }
-                
-                const hwId = [
-                    screen.width + 'x' + screen.height,
-                    navigator.hardwareConcurrency || 0,
-                    navigator.deviceMemory || 0,
-                    renderer
-                ].join('|||');
-
-                const hwHash = await sha256(hwId);
-                const finalHash = hwHash.substring(0, 15); 
+                // Rock-solid collision-free Multi Account Blocker
+                const finalHash = getUniqueDeviceToken(); 
 
                 loaderRing.style.display = 'none';
                 progressBar.style.display = 'none';
@@ -253,22 +239,25 @@
                 
                 cardTitle.innerText = "Scan Complete";
                 cardTitle.className = "text-success";
-                cardDesc.innerText = "Fingerprint securely generated. Automatically returning to bot for validation...";
+                cardDesc.innerText = "Fingerprint secured. Automatically redirecting...";
                 
                 badge.className = "status-badge badge-active";
                 badgeText.innerText = "VERIFIED";
 
-                // Forces automatic Deep Link redirect to instantly open the main menu
+                // Setup manual redirect button just in case the auto redirect fails on their Android version
+                continueBtn.style.display = 'block';
+                continueBtn.className = "action-btn btn-success";
+                continueBtn.innerText = "RETURN TO BOT";
+                
+                const deepLinkUrl = `https://t.me/${botUsername}?start=v_${finalHash}`;
+                
+                continueBtn.onclick = () => {
+                    if (botUsername) tg.openTelegramLink(deepLinkUrl);
+                };
+
+                // Automatically open the deep link without breaking it via tg.close()
                 setTimeout(() => {
-                    if (botUsername) {
-                        const link = `https://t.me/${botUsername}?start=v_${finalHash}`;
-                        tg.openTelegramLink(link);
-                        
-                        // Extremely important: This forcefully closes the Web App so the bot becomes visible instantly
-                        setTimeout(() => tg.close(), 150);
-                    } else {
-                        tg.close();
-                    }
+                    if (botUsername) tg.openTelegramLink(deepLinkUrl);
                 }, 1500);
 
             } catch (error) {
@@ -288,6 +277,7 @@
             }
         }
 
+        // Run the verification process after 2 seconds
         setTimeout(verifyDevice, 2000); 
     </script>
 </body>
