@@ -4,7 +4,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Payment Status</title>
+    <!-- Telegram Web App Script -->
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <!-- FontAwesome for Icons -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
         * {
@@ -57,7 +59,7 @@
             background: #ffffff;
             border-radius: 24px;
             padding: 35px 25px;
-            width: 90%;
+            width: 92%;
             max-width: 400px;
             box-shadow: 0 20px 40px rgba(0,0,0,0.15);
             text-align: center;
@@ -96,23 +98,25 @@
         .detail-row {
             margin-bottom: 16px;
             display: flex;
-            align-items: center;
+            align-items: flex-start;
         }
         .detail-row:last-child {
             margin-bottom: 0;
         }
         .label {
-            font-size: 0.85rem;
+            font-size: 0.82rem;
             font-weight: 800;
             color: #64748b;
-            width: 85px;
+            width: 125px; /* Expanded layout to support gateway labels cleanly */
             flex-shrink: 0;
+            letter-spacing: 0.3px;
         }
         .value {
-            font-size: 1rem;
+            font-size: 0.95rem;
             font-weight: 700;
             color: #0f172a;
             word-break: break-all;
+            line-height: 1.3;
         }
 
         /* Status Specific Colors */
@@ -123,17 +127,21 @@
 </head>
 <body>
 
+    <!-- Profile Corner -->
     <div class="profile-header">
         <div id="userName" class="profile-name">LOADING...</div>
         <div id="userId" class="profile-uid">ID: ...</div>
     </div>
 
+    <!-- Main Content -->
     <div class="main-card">
         
+        <!-- Icon Circle -->
         <div class="status-circle" id="statusCircle">
             <i class="fas fa-check color-success" id="statusIcon"></i>
         </div>
 
+        <!-- Transaction Details -->
         <div class="details-container">
             <div class="detail-row">
                 <span class="label">STATUS :-</span>
@@ -150,6 +158,10 @@
             <div class="detail-row">
                 <span class="label">TXN ID :-</span>
                 <span class="value" id="txnText">FETCHING...</span>
+            </div>
+            <div class="detail-row">
+                <span class="label">GATEWAY RESP :-</span>
+                <span class="value" id="gatewayText" style="color: #475569;">PROCESSING...</span>
             </div>
         </div>
     </div>
@@ -180,11 +192,13 @@
             const statusIcon = document.getElementById('statusIcon');
             const statusText = document.getElementById('statusText');
             const txnText = document.getElementById('txnText');
+            const gatewayText = document.getElementById('gatewayText');
 
-            let currentStatus = 'SUCCESS'; // Default expectation for triggered links
+            let currentStatus = 'SUCCESS'; 
             let currentTxn = '';
+            let currentGateway = 'Processing...';
 
-            // 1. SMART EXTRACTION
+            // 1. SMART EXTRACTION (Try JSON Parse)
             if (rawTxnid.includes('{') || rawTxnid.includes('[')) {
                 try {
                     const jsonStart = rawTxnid.indexOf('{');
@@ -198,46 +212,54 @@
                     if (parsedData.utr && parsedData.utr !== 'null' && parsedData.utr !== '') currentTxn = String(parsedData.utr);
                     else if (parsedData.order_id && parsedData.order_id !== 'null' && parsedData.order_id !== '') currentTxn = String(parsedData.order_id);
                     else if (parsedData.txnid && parsedData.txnid !== 'null' && parsedData.txnid !== '') currentTxn = String(parsedData.txnid);
+
+                    // Scrape explicit textual response properties inside gateway JSON payloads
+                    if (parsedData.message) currentGateway = String(parsedData.message);
+                    else if (parsedData.msg) currentGateway = String(parsedData.msg);
+                    else if (parsedData.remark) currentGateway = String(parsedData.remark);
+                    else if (parsedData.response) currentGateway = String(parsedData.response);
                 } catch (e) {
-                    // Ignore parsing errors for truncated JSON
+                    // Ignore parsing issues
                 }
             }
 
-            // 2. FALLBACK SCANNER: Used if JSON parsing fails or if the parameter is a direct string/number
+            // 2. FALLBACK SCANNER: For transaction IDs passed cleanly or via raw responses
             if (!currentTxn || currentTxn === '') {
-                // Hunt for any 10-35 character alphanumeric sequence (e.g. 521021025449514852481015)
                 const txnMatch = rawTxnid.match(/[a-zA-Z0-9]{10,35}/);
                 if (txnMatch) {
                     currentTxn = txnMatch[0];
                 } else if (rawTxnid && !rawTxnid.includes('{')) {
-                    currentTxn = rawTxnid; // Use plain text if completely clean
+                    currentTxn = rawTxnid; 
                 }
             }
 
-            // 3. EXPLICIT STATUS DETECTION (Read raw data for Failure/Pending keywords)
+            // If gateway response wasn't parsed from JSON structure, use raw parameter message directly
+            if (currentGateway === 'Processing...' && rawTxnid && !rawTxnid.includes('{')) {
+                currentGateway = rawTxnid;
+            }
+
+            // Global Explicit Status Overwrite based on incoming strings
             const cleanText = rawTxnid.toUpperCase().replace(/\s/g, '');
-            if (cleanText.includes('FAIL') || cleanText.includes('ERROR') || cleanText.includes('REJECT')) {
+            if (cleanText.includes('FAIL') || cleanText.includes('ERROR') || cleanText.includes('REJECT') || cleanText.includes('INSUFFICIENT')) {
                 currentStatus = 'FAILED';
             } else if (cleanText.includes('PENDING')) {
                 currentStatus = 'PENDING';
             }
 
-            // Safe fallback to prevent blank displays
-            if (!currentTxn || currentTxn === '') {
-                currentTxn = 'N/A';
-            }
+            if (!currentTxn || currentTxn === '') currentTxn = 'N/A';
 
-            // Function to paint the UI colors and text
-            function updatePageUI(status, txnId) {
+            // Function to paint the UI colors and text fields
+            function updatePageUI(status, txnId, gatewayMessage) {
                 const checkStatus = status.toUpperCase().replace(/\s/g, '');
                 txnText.innerText = txnId;
+                gatewayText.innerText = gatewayMessage;
 
                 if (checkStatus.includes('SUCCESS') || checkStatus.includes('PAID') || checkStatus.includes('COMPLETED')) {
                     statusCircle.style.borderColor = '#10b981';
                     statusIcon.className = 'fas fa-check color-success';
                     statusText.className = 'value color-success';
                     statusText.innerText = 'SUCCESS';
-                } else if (checkStatus.includes('FAIL') || checkStatus.includes('ERROR') || checkStatus.includes('REJECT')) {
+                } else if (checkStatus.includes('FAIL') || checkStatus.includes('ERROR') || checkStatus.includes('REJECT') || checkStatus.includes('INSUFFICIENT')) {
                     statusCircle.style.borderColor = '#ef4444';
                     statusIcon.className = 'fas fa-times color-failed';
                     statusText.className = 'value color-failed';
@@ -250,10 +272,10 @@
                 }
             }
 
-            // Render the initial fully processed extraction
-            updatePageUI(currentStatus, currentTxn);
+            // Immediate initial load mapping
+            updatePageUI(currentStatus, currentTxn, currentGateway);
 
-            // 4. LIVE API BACKGROUND FETCH
+            // 3. LIVE BACKGROUND FETCH VIA RE-VERIFICATION LINK
             const queryId = currentTxn !== 'N/A' ? currentTxn : rawTxnid;
 
             if (apiTemplate && queryId && !queryId.includes('{')) {
@@ -264,6 +286,7 @@
                     .then(json => {
                         let liveStatus = currentStatus;
                         let liveTxn = currentTxn;
+                        let liveGateway = currentGateway;
 
                         if (json.bank_status) liveStatus = String(json.bank_status);
                         else if (json.status) liveStatus = String(json.status);
@@ -272,11 +295,16 @@
                         else if (json.bank_reference) liveTxn = String(json.bank_reference);
                         else if (json.order_id) liveTxn = String(json.order_id);
 
-                        updatePageUI(liveStatus, liveTxn);
+                        // Capture background API status response text dynamically
+                        if (json.message) liveGateway = String(json.message);
+                        else if (json.msg) liveGateway = String(json.msg);
+                        else if (json.remark) liveGateway = String(json.remark);
+                        else if (json.response) liveGateway = String(json.response);
+
+                        updatePageUI(liveStatus, liveTxn, liveGateway);
                     })
                     .catch(err => {
-                        // Silently fails on CORS/Network errors, keeping our reliable local extractions visible
-                        console.log("Live fetch skipped or blocked, maintaining extracted data.");
+                        console.log("Live background update skipped, fallback preserved.");
                     });
             }
         });
