@@ -5,7 +5,6 @@ import os
 import random
 import requests
 import urllib.parse
-import json
 from datetime import datetime, timedelta, timezone
 from telegram import (
     Update, 
@@ -67,7 +66,8 @@ def init_db():
         upi_id TEXT,
         is_banned INT DEFAULT 0,
         device_verified INT DEFAULT 0,
-        device_token TEXT
+        device_token TEXT,
+        hw_id TEXT
     )''')
 
     cursor.execute('''CREATE TABLE IF NOT EXISTS tasks (
@@ -80,8 +80,15 @@ def init_db():
         message_id BIGINT
     )''')
     
+    # Try adding new columns if the tables already existed
     try:
         cursor.execute('ALTER TABLE tasks ADD COLUMN message_id BIGINT')
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        
+    try:
+        cursor.execute('ALTER TABLE users ADD COLUMN hw_id TEXT')
         conn.commit()
     except Exception:
         conn.rollback()
@@ -157,15 +164,17 @@ def get_channel_verification_keyboard():
     keyboard.append([InlineKeyboardButton("Verify Channels", callback_data="check_membership")])
     return InlineKeyboardMarkup(keyboard)
 
-def get_webapp_verify_keyboard():
-    # Cache buster to bypass Telegram caching issues and force it to load the fresh index.html
-    cache_buster_url = f"{WEBAPP_URL.rstrip('/')}/index.html?v={int(datetime.now().timestamp())}"
+def get_webapp_verify_keyboard(bot_username, user):
+    safe_name = urllib.parse.quote(user.first_name or user.username or "User")
     
-    # Must be a ReplyKeyboardMarkup to support the secure Telegram.WebApp.sendData()
+    # Injects the bot username and precise user details so the WebApp NEVER shows GUEST
+    cache_buster_url = f"{WEBAPP_URL.rstrip('/')}/index.html?v={int(datetime.now().timestamp())}&bot={bot_username}&name={safe_name}&uid={user.id}"
+    
+    # Beautiful Inline Button restored!
     keyboard = [
-        [KeyboardButton("Verify Your Device", web_app=WebAppInfo(url=cache_buster_url))]
+        [InlineKeyboardButton("✅ Verify Your Device", web_app=WebAppInfo(url=cache_buster_url))]
     ]
-    return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+    return InlineKeyboardMarkup(keyboard)
 
 def get_main_menu_keyboard(user_id):
     keyboard = [
@@ -222,27 +231,6 @@ async def task_timeout_monitor(context: ContextTypes.DEFAULT_TYPE):
         try: await context.bot.send_message(chat_id=uid, text="⚠️ Task expired (30m limit). It has been removed. Please request a new task.")
         except: pass
 
-async def handle_webapp_data(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.message and update.message.web_app_data:
-        data = update.message.web_app_data.data
-        try:
-            parsed = json.loads(data)
-            if parsed.get("action") == "VERIFY_DEVICE":
-                user_id = update.effective_user.id
-                
-                # Update user in database as verified
-                db_query("UPDATE users SET device_verified=1 WHERE user_id=?", (user_id,), commit=True)
-                
-                # Fetch menu text and show the main menu
-                menu_text = db_query("SELECT value FROM config WHERE key='menu_text'", fetchone=True)[0]
-                await update.message.reply_text(
-                    "✅ *Device Verified Successfully!*\n\n" + menu_text, 
-                    parse_mode="Markdown",
-                    reply_markup=get_main_menu_keyboard(user_id)
-                )
-        except Exception as e:
-            logger.error(f"WebApp Data Error: {e}")
-
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id, username = update.effective_user.id, update.effective_user.username or "Unknown"
 
@@ -259,13 +247,10 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if not user:
-        ref_id = (
-            int(context.args[0])
-            if context.args
-            and context.args[0].isdigit()
-            and int(context.args[0]) != user_id
-            else None
-        )
+        # Standard Refer logic
+        ref_id = None
+        if context.args and context.args[0].isdigit() and int(context.args[0]) != user_id:
+            ref_id = int(context.args[0])
 
         db_query(
             "INSERT INTO users (user_id, username, referred_by, device_verified) VALUES (?, ?, ?, 0) ON CONFLICT (user_id) DO NOTHING",
@@ -276,6 +261,25 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         device_verified = user[1]
 
+    # Handle the automatic Deep Link Redirect from the WebApp for Device Verification
+    if context.args and context.args[0].startswith("v_"):
+        hw_id = context.args[0][2:]
+        
+        # Security Block: Check if this exact physical device is already linked to another account
+        existing_device = db_query("SELECT user_id FROM users WHERE hw_id = ? AND user_id != ?", (hw_id, user_id), fetchone=True)
+        if existing_device:
+            await update.message.reply_text(
+                "❌ **Security Violation Detected**\n\nThis physical device is already linked to another Telegram account. Multiple accounts on a single device are strictly prohibited.", 
+                parse_mode="Markdown"
+            )
+            return
+            
+        # Process Verification
+        db_query("UPDATE users SET device_verified=1, hw_id=? WHERE user_id=?", (hw_id, user_id), commit=True)
+        device_verified = 1
+        await update.message.reply_text("✅ *Device Verified Successfully!*", parse_mode="Markdown")
+
+    # Final Menu Display
     if device_verified == 1:
         menu_text = db_query("SELECT value FROM config WHERE key='menu_text'", fetchone=True)[0]
         await update.message.reply_text(menu_text, reply_markup=get_main_menu_keyboard(user_id))
@@ -286,9 +290,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     await update.message.reply_text(
-        "🔒 *Verify Yourself To Start Bot*\n\nPlease click the button below on your keyboard to complete the device security check.",
+        "🔒 *Verify Yourself To Start Bot*\n\nPlease click the button below to complete the device security check.",
         parse_mode="Markdown",
-        reply_markup=get_webapp_verify_keyboard()
+        reply_markup=get_webapp_verify_keyboard(context.bot.username, update.effective_user)
     )
 
 async def handle_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -306,9 +310,9 @@ async def handle_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await query.message.delete()
                 await context.bot.send_message(
                     chat_id=user_id, 
-                    text="✅ Channels Joined!\n\n🔒 *Verify Yourself To Start Bot*\n\nPlease click the button below on your keyboard to complete the device security check.", 
+                    text="✅ Channels Joined!\n\n🔒 *Verify Yourself To Start Bot*\n\nPlease click the button below to complete the device security check.", 
                     parse_mode="Markdown", 
-                    reply_markup=get_webapp_verify_keyboard()
+                    reply_markup=get_webapp_verify_keyboard(context.bot.username, query.from_user)
                 )
             else:
                 menu_text = db_query("SELECT value FROM config WHERE key='menu_text'", fetchone=True)[0]
@@ -644,7 +648,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if user[1] == 0 and user_id not in ADMIN_IDS:
         await update.message.reply_text(
             "🔒 Please verify your device using /start first.",
-            reply_markup=get_webapp_verify_keyboard()
+            reply_markup=get_webapp_verify_keyboard(context.bot.username, update.effective_user)
         )
         return
     if not await check_user_joined_channels(context.bot, user_id) and user_id not in ADMIN_IDS:
@@ -912,7 +916,6 @@ def main():
     app.job_queue.run_repeating(task_timeout_monitor, interval=60)
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CallbackQueryHandler(handle_callbacks))
-    app.add_handler(MessageHandler(filters.StatusUpdate.WEB_APP_DATA, handle_webapp_data))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
     app.run_polling()
 
