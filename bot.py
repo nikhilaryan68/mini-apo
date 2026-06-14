@@ -25,7 +25,7 @@ from telegram.ext import (
 )
 
 # --- Configuration ---
-TOKEN = "8952610164:AAE852N52Om-axgF2RsXtovASRZP4sabzHw"
+TOKEN = "8394044106:AAErmMRDt4hB_kw8ZVXBin1VW7QIYjjKx2c"
 if not TOKEN:
     raise ValueError("No BOT_TOKEN provided in environment variables!")
 
