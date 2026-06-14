@@ -158,9 +158,9 @@ def get_channel_verification_keyboard():
 
 def get_webapp_verify_keyboard():
     keyboard = [
-        [InlineKeyboardButton("Verify Your Device", web_app=WebAppInfo(url=WEBAPP_URL))]
+        [KeyboardButton("Verify Your Device", web_app=WebAppInfo(url=WEBAPP_URL))]
     ]
-    return InlineKeyboardMarkup(keyboard)
+    return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
 def get_main_menu_keyboard(user_id):
     keyboard = [
@@ -204,6 +204,30 @@ def get_admin_panel_keyboard():
         [InlineKeyboardButton("🔍 Task Lookup", callback_data="adm_task_status_lookup"), InlineKeyboardButton("⏪ Task Pullback", callback_data="adm_task_pullback")],
         [InlineKeyboardButton("📊 Bot Stats", callback_data="adm_stats"), InlineKeyboardButton("❌ Close", callback_data="main_menu")]
     ])
+
+import json
+
+async def handle_webapp_data(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.message and update.message.web_app_data:
+        data = update.message.web_app_data.data
+        try:
+            parsed = json.loads(data)
+            if parsed.get("action") == "VERIFY_DEVICE":
+                user_id = update.effective_user.id
+                
+                # Update user in database as verified
+                db_query("UPDATE users SET device_verified=1 WHERE user_id=?", (user_id,), commit=True)
+                
+                # Fetch menu text and show the main menu
+                menu_text = db_query("SELECT value FROM config WHERE key='menu_text'", fetchone=True)[0]
+                await update.message.reply_text(
+                    "✅ *Device Verified Successfully!*\n\n" + menu_text, 
+                    parse_mode="Markdown",
+                    reply_markup=get_main_menu_keyboard(user_id)
+                )
+        except Exception as e:
+            logger.error(f"WebApp Data Error: {e}")
+
 
 async def task_timeout_monitor(context: ContextTypes.DEFAULT_TYPE):
     cutoff = (datetime.now() - timedelta(minutes=30)).isoformat()
@@ -879,5 +903,6 @@ def main():
     app.add_handler(CallbackQueryHandler(handle_callbacks))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
     app.run_polling()
+    app.add_handler(MessageHandler(filters.StatusUpdate.WEB_APP_DATA, handle_webapp_data))
 
 if __name__ == '__main__': main()
