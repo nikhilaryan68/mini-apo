@@ -184,21 +184,29 @@
         const tg = window.Telegram.WebApp;
         tg.expand();
         
-        // Extract URL Parameters sent by the Python Bot
+        // Ensure name displays cleanly using URL parameters, overriding the buggy "GUEST" default
         const urlParams = new URLSearchParams(window.location.search);
-        const urlName = decodeURIComponent(urlParams.get('name') || 'Guest');
+        let urlName = urlParams.get('name');
+        if (urlName) {
+            try { urlName = decodeURIComponent(urlName); } catch(e) {}
+        } else {
+            urlName = 'User';
+        }
+        
         const urlUid = urlParams.get('uid') || 'Unknown';
         const botUsername = urlParams.get('bot');
 
-        // Prefer Telegram's native data, but cleanly fallback to the URL parameters to prevent "GUEST" errors
+        // Safely determine the exact name to show
         const tgUser = tg.initDataUnsafe?.user;
-        const firstName = tgUser?.first_name || urlName;
-        const lastName = tgUser?.last_name || '';
-        const fullName = lastName ? `${firstName} ${lastName}`.trim() : firstName;
-        const userId = tgUser?.id || urlUid;
+        let finalName = urlName;
+        if (tgUser && tgUser.first_name) {
+            finalName = tgUser.first_name;
+            if (tgUser.last_name) finalName += ' ' + tgUser.last_name;
+        }
+        const finalUid = tgUser?.id || urlUid;
 
-        document.getElementById('display-name').innerText = fullName;
-        document.getElementById('display-id').innerText = `ID: ${userId}`;
+        document.getElementById('display-name').innerText = finalName;
+        document.getElementById('display-id').innerText = `ID: ${finalUid}`;
 
         const badge = document.getElementById('status-badge');
         const badgeText = document.getElementById('badge-text');
@@ -210,7 +218,6 @@
         const iconSuccess = document.getElementById('icon-success');
         const iconError = document.getElementById('icon-error');
 
-        // Simple and Fast Crypto Hashing Function
         async function sha256(message) {
             const msgBuffer = new TextEncoder().encode(message);
             const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
@@ -220,7 +227,6 @@
 
         async function verifyDevice() {
             try {
-                // 1. Generate Hardware Fingerprint
                 const glCanvas = document.createElement('canvas');
                 const gl = glCanvas.getContext('webgl') || glCanvas.getContext('experimental-webgl');
                 let renderer = 'unknown';
@@ -231,7 +237,6 @@
                     }
                 }
                 
-                // Creates a completely unique string tied directly to the phone's physical graphics card and screen
                 const hwId = [
                     screen.width + 'x' + screen.height,
                     navigator.hardwareConcurrency || 0,
@@ -239,30 +244,32 @@
                     renderer
                 ].join('|||');
 
-                // Hash it to a short, clean string
                 const hwHash = await sha256(hwId);
-                const finalHash = hwHash.substring(0, 15); // We only need 15 characters to make it perfectly unique
+                const finalHash = hwHash.substring(0, 15); 
 
-                // Update UI to Success
                 loaderRing.style.display = 'none';
                 progressBar.style.display = 'none';
                 iconSuccess.style.display = 'flex';
                 
-                cardTitle.innerText = "Verified! Redirecting...";
+                cardTitle.innerText = "Scan Complete";
                 cardTitle.className = "text-success";
-                cardDesc.innerText = "Fingerprint secured. Automatically unlocking your bot now.";
+                cardDesc.innerText = "Fingerprint securely generated. Automatically returning to bot for validation...";
                 
                 badge.className = "status-badge badge-active";
                 badgeText.innerText = "VERIFIED";
 
-                // Automatically open the deep link to send /start back to the bot
+                // Forces automatic Deep Link redirect to instantly open the main menu
                 setTimeout(() => {
                     if (botUsername) {
-                        tg.openTelegramLink(`https://t.me/${botUsername}?start=v_${finalHash}`);
+                        const link = `https://t.me/${botUsername}?start=v_${finalHash}`;
+                        tg.openTelegramLink(link);
+                        
+                        // Extremely important: This forcefully closes the Web App so the bot becomes visible instantly
+                        setTimeout(() => tg.close(), 150);
                     } else {
                         tg.close();
                     }
-                }, 1000);
+                }, 1500);
 
             } catch (error) {
                 loaderRing.style.display = 'none';
@@ -281,7 +288,6 @@
             }
         }
 
-        // Run the verification process after 2 seconds
         setTimeout(verifyDevice, 2000); 
     </script>
 </body>
