@@ -54,9 +54,19 @@ def generate_password():
     nums = str(random.randint(100, 999))
     return f"{word}@{nums}"
 
+# --- Database Pool Setup ---
+try:
+    # Creates a pool with a minimum of 1 and maximum of 10 persistent connections
+    db_pool = psycopg2.pool.SimpleConnectionPool(1, 10, DATABASE_URL)
+    logger.info("Database connection pool created successfully!")
+except Exception as e:
+    logger.error(f"Failed to create database pool: {e}")
+    raise
+
 # --- Database Setup (PostgreSQL) ---
 def init_db():
-    conn = psycopg2.connect(DATABASE_URL)
+    # Grab a connection from the pool instead of making a new one
+    conn = db_pool.getconn()
     cursor = conn.cursor()
 
     cursor.execute('''CREATE TABLE IF NOT EXISTS users (
@@ -114,20 +124,28 @@ def init_db():
     cursor.execute("INSERT INTO config (key, value) VALUES ('withdrawal_tax', '0') ON CONFLICT (key) DO NOTHING")
 
     conn.commit()
-    conn.close()
+    cursor.close()
+    # Put connection back into the pool
+    db_pool.putconn(conn)
 
 init_db()
 
 def db_query(query, params=(), commit=False, fetchall=False, fetchone=False):
     pg_query = query.replace('?', '%s')
-    conn = psycopg2.connect(DATABASE_URL)
+    
+    # Grab a connection instantly from the pool
+    conn = db_pool.getconn()
     cursor = conn.cursor()
+    
     cursor.execute(pg_query, params)
     res = None
     if commit: conn.commit()
     if fetchall: res = cursor.fetchall()
     elif fetchone: res = cursor.fetchone()
-    conn.close()
+    
+    cursor.close()
+    # Return connection to the pool immediately
+    db_pool.putconn(conn)
     return res
 
 def reset_task_password(tid):
