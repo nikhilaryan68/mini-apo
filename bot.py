@@ -322,7 +322,7 @@ async def handle_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     elif data == "adm_stats" and user_id in ADMIN_IDS:
         total_u = (await db_query("SELECT COUNT(*) FROM users", fetchone=True))[0]
-        total_t = (await db_query("SELECT COUNT(*) FROM tasks WHERE status='completed'", fetchone=True)[0]
+        total_t = (await db_query("SELECT COUNT(*) FROM tasks WHERE status='completed'", fetchone=True))[0]
         total_wd = (await db_query("SELECT value FROM config WHERE key='total_wd_processed'", fetchone=True))[0]
         verified_u = 0
         all_u = await db_query("SELECT user_id FROM users", fetchall=True)
