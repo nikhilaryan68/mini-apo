@@ -30,7 +30,7 @@ TOKEN = "8394044106:AAErmMRDt4hB_kw8ZVXBin1VW7QIYjjKx2c"
 if not TOKEN:
     raise ValueError("No BOT_TOKEN provided in environment variables!")
 
-DATABASE_URL = "postgresql://postgres:wAjYOYPUfiPZWfgYddgjjNfmDhqJfngj@kodama.proxy.rlwy.net:20456/railway"
+DATABASE_URL = "postgresql://postgres:nikhil2008@127.0.0.1:5432/railway"
 if not DATABASE_URL:
     raise ValueError("No DATABASE_URL provided in environment variables!")
 
