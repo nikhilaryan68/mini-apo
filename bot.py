@@ -35,7 +35,7 @@ if not DATABASE_URL:
     raise ValueError("No DATABASE_URL provided in environment variables!")
 
 # FIXED: Main WebApp URL updated to secure Vercel link for device verification
-WEBAPP_URL = os.getenv('WEBAPP_URL', 'https://mini-app-1-orcin.vercel.app/')
+WEBAPP_URL = os.getenv('WEBAPP_URL', 'https://mini-app-2-kappa.vercel.app/')
 
 admin_ids_raw = os.getenv('ADMIN_IDS', '6197579049')
 ADMIN_IDS = [int(x.strip()) for x in admin_ids_raw.split(',') if x.strip().isdigit()]
