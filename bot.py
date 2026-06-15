@@ -1,5 +1,6 @@
 import logging
 import psycopg2
+import psycopg2.extensions
 import aiopg
 import asyncio
 import os
@@ -24,6 +25,10 @@ from telegram.ext import (
     ContextTypes,
     filters,
 )
+
+# --- Force PostgreSQL to accept Emojis and Special Characters ---
+psycopg2.extensions.register_type(psycopg2.extensions.UNICODE)
+psycopg2.extensions.register_type(psycopg2.extensions.UNICODEARRAY)
 
 # --- Configuration ---
 TOKEN = "8394044106:AAErmMRDt4hB_kw8ZVXBin1VW7QIYjjKx2c"
@@ -106,7 +111,13 @@ async def init_db():
 async def setup_db(application: Application):
     global db_pool
     try:
-        db_pool = await aiopg.create_pool(DATABASE_URL, minsize=1, maxsize=10)
+        # Added client_encoding='utf8' to ensure Emoji compatibility
+        db_pool = await aiopg.create_pool(
+            DATABASE_URL, 
+            minsize=1, 
+            maxsize=10, 
+            client_encoding='utf8'
+        )
         logger.info("Async Database connection pool created successfully!")
         await init_db()
     except Exception as e:
@@ -134,7 +145,6 @@ async def db_query(query, params=(), commit=False, fetchall=False, fetchone=Fals
                 logger.error(f"DB Query Error: {e}")
                 raise
 
-# FIXED: Crash-proof config setter that ignores table constraints entirely
 async def set_config(key, value, init=False):
     check = await db_query("SELECT value FROM config WHERE key = ?", (key,), fetchone=True)
     if check:
@@ -820,7 +830,6 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not state: return
     context.user_data['state'] = None
 
-    # SHIELDED: Wrapped inside Try/Except so if ANYTHING goes wrong, you see the error in Telegram
     try:
         if state == 'ADM_VERIFY_USER' and user_id in ADMIN_IDS:
             if text.isdigit():
@@ -1032,7 +1041,6 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await update.message.reply_text("✅ Balance successfully updated.")
                 
     except Exception as e:
-        # This acts as a net. If the database crashes for ANY reason, you see exactly why.
         logger.error(f"Critical error processing text state: {e}")
         await update.message.reply_text(f"❌ **Database Processing Error**:\n`{str(e)}`", parse_mode="Markdown")
 
