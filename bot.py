@@ -126,8 +126,7 @@ async def db_query(query, params=(), commit=False, fetchall=False, fetchone=Fals
                 res = await cursor.fetchall()
             elif fetchone: 
                 res = await cursor.fetchone()
-            
-            # FIXED: Explicitly commands PostgreSQL to save updates
+                
             if commit:
                 await cursor.execute("COMMIT")
                 
@@ -185,7 +184,6 @@ def get_main_menu_keyboard(user_id):
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
 async def get_admin_panel_text():
-    # FIXED: Crash-proof data pulling for config variables
     min_wd_row = await db_query("SELECT value FROM config WHERE key='min_withdrawal'", fetchone=True)
     min_wd = min_wd_row[0] if min_wd_row else '10'
     
@@ -286,7 +284,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if device_verified == 1:
         menu_text_row = await db_query("SELECT value FROM config WHERE key='menu_text'", fetchone=True)
-        menu_text = menu_text_row[0] if menu_text_row else "Welcome to the Task Bot!"
+        menu_text = menu_text_row[0] if menu_text_row else "Welcome to the Task Bot! Complete tasks to earn INR."
         await update.message.reply_text(menu_text, reply_markup=get_main_menu_keyboard(user_id))
         return
 
@@ -326,7 +324,7 @@ async def handle_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 )
             else:
                 menu_text_row = await db_query("SELECT value FROM config WHERE key='menu_text'", fetchone=True)
-                menu_text = menu_text_row[0] if menu_text_row else "Welcome to the Task Bot!"
+                menu_text = menu_text_row[0] if menu_text_row else "Welcome to the Task Bot! Complete tasks to earn INR."
                 await query.message.delete()
                 await context.bot.send_message(chat_id=user_id, text="✅ All Verifications Complete!\n\n" + menu_text, reply_markup=get_main_menu_keyboard(user_id))
         else: 
@@ -355,7 +353,7 @@ async def handle_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     elif data == "main_menu":
         menu_text_row = await db_query("SELECT value FROM config WHERE key='menu_text'", fetchone=True)
-        menu_text = menu_text_row[0] if menu_text_row else "Welcome to the Task Bot!"
+        menu_text = menu_text_row[0] if menu_text_row else "Welcome to the Task Bot! Complete tasks to earn INR."
         await query.message.delete()
         await context.bot.send_message(chat_id=user_id, text=menu_text, reply_markup=get_main_menu_keyboard(user_id))
     
@@ -436,7 +434,9 @@ async def handle_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
         u = await db_query("SELECT balance, upi_id FROM users WHERE user_id=?", (user_id,), fetchone=True)
         await query.message.edit_text(f"💳 Balance: ₹{u[0]:.2f}\nUPI: `{u[1] or 'None'}`", parse_mode="Markdown", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔗 Link UPI", callback_data="add_upi")], [InlineKeyboardButton("💸 Withdraw", callback_data="withdraw")], [InlineKeyboardButton("⬅️ Back", callback_data="main_menu")]]))
     
-    elif data == "add_upi": context.user_data['state'] = 'WAITING_UPI'; await query.message.reply_text("Send UPI:")
+    elif data == "add_upi": 
+        context.user_data['state'] = 'WAITING_UPI'
+        await query.message.reply_text("Send UPI:")
     
     elif data == "withdraw": 
         kb = [
@@ -449,11 +449,17 @@ async def handle_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data in ["wd_instant", "wd_manual"]:
         wd_s_row = await db_query("SELECT value FROM config WHERE key='withdrawal_status'", fetchone=True)
         wd_s = wd_s_row[0] if wd_s_row else 'ON'
-        if wd_s == 'OFF': await query.message.reply_text("⚠️ Withdrawals are currently OFF"); return
+        if wd_s == 'OFF': 
+            await query.message.reply_text("⚠️ Withdrawals are currently OFF")
+            return
         
         u = await db_query("SELECT balance, upi_id FROM users WHERE user_id=?", (user_id,), fetchone=True)
-        if not u[1]: await query.message.reply_text("❌ Please link your UPI ID first from the wallet menu."); return
-        if u[0] <= 0: await query.message.reply_text("❌ Insufficient balance."); return
+        if not u[1]: 
+            await query.message.reply_text("❌ Please link your UPI ID first from the wallet menu.")
+            return
+        if u[0] <= 0: 
+            await query.message.reply_text("❌ Insufficient balance.")
+            return
         
         wd_type = data.split('_')[1].upper()
         context.user_data['state'] = f'WAITING_WD_AMOUNT_{wd_type}'
@@ -544,7 +550,9 @@ async def handle_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
         c = (await db_query("SELECT COUNT(*) FROM users WHERE referred_by=?", (user_id,), fetchone=True))[0]
         await query.message.edit_text(f"👥 Referrals: {c}\nLink: `t.me/{bot_me.username}?start={user_id}`", parse_mode="Markdown", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="main_menu")]]))
     
-    elif data == "adm_bulk": context.user_data['state'] = 'ADM_WAITING_BULK'; await query.message.reply_text("Format: `u,u,u,...` (Usernames separated by comma)")
+    elif data == "adm_bulk": 
+        context.user_data['state'] = 'ADM_WAITING_BULK'
+        await query.message.reply_text("Format: `u,u,u,...` (Usernames separated by comma)")
     
     elif data == "adm_pending_tasks" and user_id in ADMIN_IDS:
         tks = await db_query("SELECT id, task_data FROM tasks WHERE status='available'", fetchall=True)
@@ -553,18 +561,24 @@ async def handle_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.message.edit_text(msg[:4000], reply_markup=InlineKeyboardMarkup(kb))
     
     elif data == "adm_del_all_tasks" and user_id in ADMIN_IDS:
-        await db_query("DELETE FROM tasks WHERE status='available'", commit=True); await query.message.reply_text("Queue cleared.")
+        await db_query("DELETE FROM tasks WHERE status='available'", commit=True)
+        await query.message.reply_text("Queue cleared.")
     
     elif data == "adm_del_indiv_task" and user_id in ADMIN_IDS:
-        context.user_data['state'] = 'ADM_DEL_INDIV'; await query.message.reply_text("Enter Task ID to delete:")
+        context.user_data['state'] = 'ADM_DEL_INDIV'
+        await query.message.reply_text("Enter Task ID to delete:")
 
     elif data == "adm_list_task_app":
         p = await db_query("SELECT id, assigned_to, task_data, assigned_at FROM tasks WHERE status='pending_approval'", fetchall=True)
-        if not p: await query.message.reply_text("No pending approvals."); return
+        if not p: 
+            await query.message.reply_text("No pending approvals.")
+            return
         for t in p: 
             tid, assigned_to, task_data, assigned_at = t
-            try: t_user, t_pass = task_data.split(":")
-            except: t_user, t_pass = "Error", "Error"
+            try: 
+                t_user, t_pass = task_data.split(":")
+            except: 
+                t_user, t_pass = "Error", "Error"
             
             detail_msg = (
                 f"📝 **PENDING TASK APPROVAL**\n\n"
@@ -578,7 +592,9 @@ async def handle_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     elif data == "adm_list_wd":
         w = context.bot_data.get('withdrawals', {})
-        if not w: await query.message.reply_text("No pending Manual WD."); return
+        if not w: 
+            await query.message.reply_text("No pending Manual WD.")
+            return
         for k, v in list(w.items()): 
             detail_wd_msg = (
                 f"🏧 **PENDING MANUAL WITHDRAWAL**\n\n"
@@ -614,10 +630,21 @@ async def handle_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             await query.message.edit_text("❌ Withdrawal request already processed or not found.")
     
-    elif data == "adm_broadcast": context.user_data['state'] = 'ADM_BROADCAST'; await query.message.reply_text("Msg:")
-    elif data == "adm_dm": context.user_data['state'] = 'ADM_DM'; await query.message.reply_text("Format: `id:msg`")
-    elif data == "adm_ban": context.user_data['state'] = 'ADM_BAN'; await query.message.reply_text("ID to ban:")
-    elif data == "adm_unban": context.user_data['state'] = 'ADM_UNBAN'; await query.message.reply_text("ID to unban:")
+    elif data == "adm_broadcast": 
+        context.user_data['state'] = 'ADM_BROADCAST'
+        await query.message.reply_text("Msg:")
+        
+    elif data == "adm_dm": 
+        context.user_data['state'] = 'ADM_DM'
+        await query.message.reply_text("Format: `id:msg`")
+        
+    elif data == "adm_ban": 
+        context.user_data['state'] = 'ADM_BAN'
+        await query.message.reply_text("ID to ban:")
+        
+    elif data == "adm_unban": 
+        context.user_data['state'] = 'ADM_UNBAN'
+        await query.message.reply_text("ID to unban:")
     
     elif data == "adm_tog_wd":
         c_row = await db_query("SELECT value FROM config WHERE key='withdrawal_status'", fetchone=True)
@@ -633,29 +660,65 @@ async def handle_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await db_query("INSERT INTO config (key, value) VALUES ('bot_status', ?) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value", (s,), commit=True)
         await query.message.reply_text(f"Bot {s}")
     
-    elif data == "adm_chk_bal": context.user_data['state'] = 'ADM_CHK_BAL'; await query.message.reply_text("ID:")
-    elif data == "adm_mod_bal": context.user_data['state'] = 'ADM_MOD_BAL'; await query.message.reply_text("Format: `id:amt`")
+    elif data == "adm_chk_bal": 
+        context.user_data['state'] = 'ADM_CHK_BAL'
+        await query.message.reply_text("ID:")
+        
+    elif data == "adm_mod_bal": 
+        context.user_data['state'] = 'ADM_MOD_BAL'
+        await query.message.reply_text("Format: `id:amt`")
+        
     elif data == "adm_top_bal":
         t = await db_query("SELECT user_id, balance FROM users ORDER BY balance DESC LIMIT 10", fetchall=True)
         await query.message.reply_text("\n".join([f"{i+1}) {r[0]} - ₹{r[1]:.2f}" for i, r in enumerate(t)]))
     
-    elif data == "adm_chg_text": context.user_data['state'] = 'ADM_CHG_TEXT'; await query.message.reply_text("New Menu Text:")
+    elif data == "adm_chg_text": 
+        context.user_data['state'] = 'ADM_CHG_TEXT'
+        await query.message.reply_text("📝 Enter New Menu Text:")
     
-    elif data == "adm_min_wd": context.user_data['state'] = 'ADM_SET_MIN_WD'; await query.message.reply_text("Enter New Minimum Withdrawal Amount:")
-    elif data == "adm_max_wd": context.user_data['state'] = 'ADM_SET_MAX_WD'; await query.message.reply_text("Enter New Maximum Withdrawal Amount:")
-    elif data == "adm_wd_tax": context.user_data['state'] = 'ADM_SET_WD_TAX'; await query.message.reply_text("Enter New Instant Withdrawal Tax Amount (e.g. 5):")
+    elif data == "adm_min_wd": 
+        context.user_data['state'] = 'ADM_SET_MIN_WD'
+        await query.message.reply_text("Enter New Minimum Withdrawal Amount:")
+        
+    elif data == "adm_max_wd": 
+        context.user_data['state'] = 'ADM_SET_MAX_WD'
+        await query.message.reply_text("Enter New Maximum Withdrawal Amount:")
+        
+    elif data == "adm_wd_tax": 
+        context.user_data['state'] = 'ADM_SET_WD_TAX'
+        await query.message.reply_text("Enter New Instant Withdrawal Tax Amount (e.g. 5):")
     
-    elif data == "adm_task_status_lookup": context.user_data['state'] = 'ADM_LOOKUP_TASK'; await query.message.reply_text("Task ID or Username:")
-    elif data == "adm_task_checkup": context.user_data['state'] = 'ADM_BULK_CHECK'; await query.message.reply_text("Enter task usernames separated by comma or newline:")
-    elif data == "adm_task_pullback": context.user_data['state'] = 'ADM_PULLBACK'; await query.message.reply_text("Enter Task ID or Username to Pullback:")
-    elif data == "adm_set_api": context.user_data['state'] = 'ADM_SET_API'; await query.message.reply_text("Enter API Link (Use `{upi id}` and `{amount}` as placeholders):")
-    elif data == "adm_set_status_link": context.user_data['state'] = 'ADM_SET_STATUS_LINK'; await query.message.reply_text("Enter Status API Link (Use `{txnid}` as a placeholder if required by the API):")
+    elif data == "adm_task_status_lookup": 
+        context.user_data['state'] = 'ADM_LOOKUP_TASK'
+        await query.message.reply_text("Task ID or Username:")
+        
+    elif data == "adm_task_checkup": 
+        context.user_data['state'] = 'ADM_BULK_CHECK'
+        await query.message.reply_text("Enter task usernames separated by comma or newline:")
+        
+    elif data == "adm_task_pullback": 
+        context.user_data['state'] = 'ADM_PULLBACK'
+        await query.message.reply_text("Enter Task ID or Username to Pullback:")
+        
+    elif data == "adm_set_api": 
+        context.user_data['state'] = 'ADM_SET_API'
+        await query.message.reply_text("Enter API Link (Use `{upi id}` and `{amount}` as placeholders):")
+        
+    elif data == "adm_set_status_link": 
+        context.user_data['state'] = 'ADM_SET_STATUS_LINK'
+        await query.message.reply_text("Enter Status API Link (Use `{txnid}` as a placeholder if required by the API):")
     
     elif data == "adm_manage_channels":
         kb = [[InlineKeyboardButton("➕ Add", callback_data="adm_add_chan"), InlineKeyboardButton("❌ Rem", callback_data="adm_rem_chan")], [InlineKeyboardButton("📋 List", callback_data="adm_list_chan")], [InlineKeyboardButton("⬅️ Back", callback_data="admin_panel")]]
         await query.message.edit_text("Channels:", reply_markup=InlineKeyboardMarkup(kb))
-    elif data == "adm_add_chan": context.user_data['state'] = 'ADM_ADD_CHAN_DATA'; await query.message.reply_text("id:link")
-    elif data == "adm_rem_chan": context.user_data['state'] = 'ADM_REM_CHAN_DATA'; await query.message.reply_text("id to rem")
+        
+    elif data == "adm_add_chan": 
+        context.user_data['state'] = 'ADM_ADD_CHAN_DATA'
+        await query.message.reply_text("id:link")
+        
+    elif data == "adm_rem_chan": 
+        context.user_data['state'] = 'ADM_REM_CHAN_DATA'
+        await query.message.reply_text("id to rem")
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.effective_user:
@@ -744,7 +807,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             try:
                 menu_text_row = await db_query("SELECT value FROM config WHERE key='menu_text'", fetchone=True)
-                menu_text = menu_text_row[0] if menu_text_row else "Welcome to the Task Bot!"
+                menu_text = menu_text_row[0] if menu_text_row else "Welcome to the Task Bot! Complete tasks to earn INR."
                 await context.bot.send_message(
                     chat_id=target_id, 
                     text="✅ You have been manually verified by an Admin!\n\n" + menu_text, 
@@ -755,7 +818,9 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             await update.message.reply_text("❌ Invalid User ID. Please enter numbers only.")
 
-    elif state == 'WAITING_UPI': await db_query("UPDATE users SET upi_id=? WHERE user_id=?", (text, user_id), commit=True); await update.message.reply_text("UPI Linked.")
+    elif state == 'WAITING_UPI': 
+        await db_query("UPDATE users SET upi_id=? WHERE user_id=?", (text, user_id), commit=True)
+        await update.message.reply_text("UPI Linked.")
     
     elif state.startswith('WAITING_WD_AMOUNT_'):
         wd_type = state.split('_')[3]
@@ -886,7 +951,6 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             await update.message.reply_text("❌ Task not found.")
 
-    # FIXED: Replaces standard UPDATE with UPSERT queries so missing DB keys auto-generate
     elif state == 'ADM_SET_API':
         await db_query("INSERT INTO config (key, value) VALUES ('payment_api_url', ?) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value", (text,), commit=True)
         await update.message.reply_text("✅ Payment API Link Updated Successfully.")
@@ -923,10 +987,14 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await db_query("INSERT INTO channels (chat_id, invite_link) VALUES (?,?) ON CONFLICT (chat_id) DO UPDATE SET invite_link = EXCLUDED.invite_link", (cid.strip(), lnk.strip()), commit=True)
             await update.message.reply_text("Added.")
     
-    elif state == 'ADM_REM_CHAN_DATA': await db_query("DELETE FROM channels WHERE chat_id=?", (text,), commit=True); await update.message.reply_text("Deleted.")
+    elif state == 'ADM_REM_CHAN_DATA': 
+        await db_query("DELETE FROM channels WHERE chat_id=?", (text,), commit=True)
+        await update.message.reply_text("Deleted.")
     
     elif state == 'ADM_DEL_INDIV':
-        if text.isdigit(): await db_query("DELETE FROM tasks WHERE id=? AND status='available'", (int(text),), commit=True); await update.message.reply_text("Task deleted.")
+        if text.isdigit(): 
+            await db_query("DELETE FROM tasks WHERE id=? AND status='available'", (int(text),), commit=True)
+            await update.message.reply_text("Task deleted.")
         
     elif state == 'ADM_WAITING_BULK':
         for u in text.split(","): 
@@ -940,18 +1008,31 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         for u in await db_query("SELECT user_id FROM users", fetchall=True):
             try: await context.bot.send_message(u[0], f"📢 **Announcement**\n\n{text}", parse_mode="Markdown")
             except: pass
+            
     elif state == 'ADM_DM' and ":" in text:
         target, msg = text.split(":", 1)
-        try: await context.bot.send_message(int(target), f"💬 **Admin Msg:** {msg}"); await update.message.reply_text("Sent.")
-        except: await update.message.reply_text("Failed.")
-    elif state == 'ADM_BAN': await db_query("UPDATE users SET is_banned=1 WHERE user_id=?", (int(text),), commit=True); await update.message.reply_text("Banned.")
-    elif state == 'ADM_UNBAN': await db_query("UPDATE users SET is_banned=0 WHERE user_id=?", (int(text),), commit=True); await update.message.reply_text("Unbanned.")
+        try: 
+            await context.bot.send_message(int(target), f"💬 **Admin Msg:** {msg}")
+            await update.message.reply_text("Sent.")
+        except: 
+            await update.message.reply_text("Failed.")
+            
+    elif state == 'ADM_BAN': 
+        await db_query("UPDATE users SET is_banned=1 WHERE user_id=?", (int(text),), commit=True)
+        await update.message.reply_text("Banned.")
+        
+    elif state == 'ADM_UNBAN': 
+        await db_query("UPDATE users SET is_banned=0 WHERE user_id=?", (int(text),), commit=True)
+        await update.message.reply_text("Unbanned.")
+        
     elif state == 'ADM_CHK_BAL':
         b = await db_query("SELECT balance FROM users WHERE user_id=?", (int(text),), fetchone=True)
         await update.message.reply_text(f"Bal: ₹{b[0] if b else 'N/A'}")
+        
     elif state == 'ADM_MOD_BAL' and ":" in text:
         target, amt = text.split(":", 1)
-        await db_query("UPDATE users SET balance=balance+? WHERE user_id=?", (float(amt), int(target)), commit=True); await update.message.reply_text("Updated.")
+        await db_query("UPDATE users SET balance=balance+? WHERE user_id=?", (float(amt), int(target)), commit=True)
+        await update.message.reply_text("Updated.")
 
 def main():
     app = Application.builder().token(TOKEN).post_init(setup_db).build()
