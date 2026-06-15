@@ -34,7 +34,8 @@ DATABASE_URL = "postgresql://postgres:wAjYOYPUfiPZWfgYddgjjNfmDhqJfngj@kodama.pr
 if not DATABASE_URL:
     raise ValueError("No DATABASE_URL provided in environment variables!")
 
-WEBAPP_URL = os.getenv('WEBAPP_URL', 'https://mini-apo-production.up.railway.app/')
+# FIXED: Main WebApp URL updated to secure Vercel link for device verification
+WEBAPP_URL = os.getenv('WEBAPP_URL', 'https://mini-app-1-orcin.vercel.app/')
 
 admin_ids_raw = os.getenv('ADMIN_IDS', '6197579049')
 ADMIN_IDS = [int(x.strip()) for x in admin_ids_raw.split(',') if x.strip().isdigit()]
@@ -496,8 +497,10 @@ async def handle_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     'txnid': txn_id,
                     'api': status_api_url
                 }
+                
+                # FIXED: Securely passes payment details to your Vercel index1.html file
                 query_string = urllib.parse.urlencode(params)
-                full_webapp_url = "http://mini-app-1-orcin.vercel.app"
+                full_webapp_url = f"https://mini-app-1-orcin.vercel.app/index1.html?{query_string}"
                 
                 btn = InlineKeyboardMarkup([[InlineKeyboardButton("🔍 Check payment status", web_app=WebAppInfo(url=full_webapp_url))]])
                 await query.message.edit_text("YOUR WITHDRAWAL IS SUCCESSFULLY PAID FROM GATEWAY ✅\n\n⚠️IF NOT RECEIVED THEN CONTACT SUPPORT", reply_markup=btn)
