@@ -81,18 +81,6 @@ async def init_db():
                 submission_data TEXT,
                 message_id BIGINT
             )''')
-            
-            try:
-                await cursor.execute('ALTER TABLE tasks ADD COLUMN message_id BIGINT')
-                await conn.commit()
-            except Exception:
-                await conn.rollback()
-                
-            try:
-                await cursor.execute('ALTER TABLE users ADD COLUMN hw_id TEXT')
-                await conn.commit()
-            except Exception:
-                await conn.rollback()
 
             await cursor.execute('''CREATE TABLE IF NOT EXISTS config (
                 key TEXT PRIMARY KEY,
@@ -114,8 +102,6 @@ async def init_db():
             await cursor.execute("INSERT INTO config (key, value) VALUES ('max_withdrawal', '10000') ON CONFLICT (key) DO NOTHING")
             await cursor.execute("INSERT INTO config (key, value) VALUES ('withdrawal_tax', '0') ON CONFLICT (key) DO NOTHING")
 
-            await conn.commit()
-
 async def setup_db(application: Application):
     """Initializes the connection pool on bot startup inside the event loop"""
     global db_pool
@@ -130,7 +116,6 @@ async def setup_db(application: Application):
 async def db_query(query, params=(), commit=False, fetchall=False, fetchone=False):
     pg_query = query.replace('?', '%s')
     
-    # Non-blocking context manager safely manages the connection and puts it back
     async with db_pool.acquire() as conn:
         async with conn.cursor() as cursor:
             await cursor.execute(pg_query, params)
@@ -139,9 +124,6 @@ async def db_query(query, params=(), commit=False, fetchall=False, fetchone=Fals
                 res = await cursor.fetchall()
             elif fetchone: 
                 res = await cursor.fetchone()
-            
-            if commit: 
-                await conn.commit()
             return res
 
 async def reset_task_password(tid):
@@ -340,7 +322,7 @@ async def handle_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     elif data == "adm_stats" and user_id in ADMIN_IDS:
         total_u = (await db_query("SELECT COUNT(*) FROM users", fetchone=True))[0]
-        total_t = (await db_query("SELECT COUNT(*) FROM tasks WHERE status='completed'", fetchone=True))[0]
+        total_t = (await db_query("SELECT COUNT(*) FROM tasks WHERE status='completed'", fetchone=True)[0]
         total_wd = (await db_query("SELECT value FROM config WHERE key='total_wd_processed'", fetchone=True))[0]
         verified_u = 0
         all_u = await db_query("SELECT user_id FROM users", fetchall=True)
@@ -923,8 +905,6 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif state == 'ADM_CHG_TEXT': await db_query("UPDATE config SET value=? WHERE key='menu_text'", (text,), commit=True); await update.message.reply_text("Menu Updated.")
 
 def main():
-    # The new post_init method attaches your database initialization 
-    # to the bot's background event loop exactly when it starts.
     app = Application.builder().token(TOKEN).post_init(setup_db).build()
     
     app.job_queue.run_repeating(task_timeout_monitor, interval=60)
