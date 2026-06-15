@@ -1,6 +1,6 @@
 import logging
 import psycopg2
-from psycopg2 import pool
+import aiopg
 import asyncio
 import os
 import random
@@ -54,109 +54,105 @@ def generate_password():
     nums = str(random.randint(100, 999))
     return f"{word}@{nums}"
 
-# --- Database Pool Setup ---
-try:
-    # Creates a pool with a minimum of 1 and maximum of 10 persistent connections
-    db_pool = psycopg2.pool.SimpleConnectionPool(1, 10, DATABASE_URL)
-    logger.info("Database connection pool created successfully!")
-except Exception as e:
-    logger.error(f"Failed to create database pool: {e}")
-    raise
+# --- Database Pool Setup (Global variable) ---
+db_pool = None
 
-# --- Database Setup (PostgreSQL) ---
-def init_db():
-    # Grab a connection from the pool instead of making a new one
-    conn = db_pool.getconn()
-    cursor = conn.cursor()
+async def init_db():
+    async with db_pool.acquire() as conn:
+        async with conn.cursor() as cursor:
+            await cursor.execute('''CREATE TABLE IF NOT EXISTS users (
+                user_id BIGINT PRIMARY KEY,
+                username TEXT,
+                balance FLOAT DEFAULT 0.0,
+                referred_by BIGINT,
+                upi_id TEXT,
+                is_banned INT DEFAULT 0,
+                device_verified INT DEFAULT 0,
+                device_token TEXT,
+                hw_id TEXT
+            )''')
 
-    cursor.execute('''CREATE TABLE IF NOT EXISTS users (
-        user_id BIGINT PRIMARY KEY,
-        username TEXT,
-        balance FLOAT DEFAULT 0.0,
-        referred_by BIGINT,
-        upi_id TEXT,
-        is_banned INT DEFAULT 0,
-        device_verified INT DEFAULT 0,
-        device_token TEXT,
-        hw_id TEXT
-    )''')
+            await cursor.execute('''CREATE TABLE IF NOT EXISTS tasks (
+                id SERIAL PRIMARY KEY,
+                task_data TEXT,
+                status TEXT DEFAULT 'available',
+                assigned_to BIGINT,
+                assigned_at TEXT,
+                submission_data TEXT,
+                message_id BIGINT
+            )''')
+            
+            try:
+                await cursor.execute('ALTER TABLE tasks ADD COLUMN message_id BIGINT')
+                await conn.commit()
+            except Exception:
+                await conn.rollback()
+                
+            try:
+                await cursor.execute('ALTER TABLE users ADD COLUMN hw_id TEXT')
+                await conn.commit()
+            except Exception:
+                await conn.rollback()
 
-    cursor.execute('''CREATE TABLE IF NOT EXISTS tasks (
-        id SERIAL PRIMARY KEY,
-        task_data TEXT,
-        status TEXT DEFAULT 'available',
-        assigned_to BIGINT,
-        assigned_at TEXT,
-        submission_data TEXT,
-        message_id BIGINT
-    )''')
-    
+            await cursor.execute('''CREATE TABLE IF NOT EXISTS config (
+                key TEXT PRIMARY KEY,
+                value TEXT
+            )''')
+
+            await cursor.execute('''CREATE TABLE IF NOT EXISTS channels (
+                chat_id TEXT PRIMARY KEY,
+                invite_link TEXT
+            )''')
+
+            await cursor.execute("INSERT INTO config (key, value) VALUES ('menu_text', 'Welcome to the Task Bot! Complete tasks to earn INR.') ON CONFLICT (key) DO NOTHING")
+            await cursor.execute("INSERT INTO config (key, value) VALUES ('bot_status', 'ON') ON CONFLICT (key) DO NOTHING")
+            await cursor.execute("INSERT INTO config (key, value) VALUES ('withdrawal_status', 'ON') ON CONFLICT (key) DO NOTHING")
+            await cursor.execute("INSERT INTO config (key, value) VALUES ('total_wd_processed', '0') ON CONFLICT (key) DO NOTHING")
+            await cursor.execute("INSERT INTO config (key, value) VALUES ('payment_api_url', '') ON CONFLICT (key) DO NOTHING")
+            await cursor.execute("INSERT INTO config (key, value) VALUES ('payment_status_url', '') ON CONFLICT (key) DO NOTHING")
+            await cursor.execute("INSERT INTO config (key, value) VALUES ('min_withdrawal', '10') ON CONFLICT (key) DO NOTHING")
+            await cursor.execute("INSERT INTO config (key, value) VALUES ('max_withdrawal', '10000') ON CONFLICT (key) DO NOTHING")
+            await cursor.execute("INSERT INTO config (key, value) VALUES ('withdrawal_tax', '0') ON CONFLICT (key) DO NOTHING")
+
+            await conn.commit()
+
+async def setup_db(application: Application):
+    """Initializes the connection pool on bot startup inside the event loop"""
+    global db_pool
     try:
-        cursor.execute('ALTER TABLE tasks ADD COLUMN message_id BIGINT')
-        conn.commit()
-    except Exception:
-        conn.rollback()
-        
-    try:
-        cursor.execute('ALTER TABLE users ADD COLUMN hw_id TEXT')
-        conn.commit()
-    except Exception:
-        conn.rollback()
+        db_pool = await aiopg.create_pool(DATABASE_URL, minsize=1, maxsize=10)
+        logger.info("Async Database connection pool created successfully!")
+        await init_db()
+    except Exception as e:
+        logger.error(f"Failed to create database pool: {e}")
+        raise
 
-    cursor.execute('''CREATE TABLE IF NOT EXISTS config (
-        key TEXT PRIMARY KEY,
-        value TEXT
-    )''')
-
-    cursor.execute('''CREATE TABLE IF NOT EXISTS channels (
-        chat_id TEXT PRIMARY KEY,
-        invite_link TEXT
-    )''')
-
-    cursor.execute("INSERT INTO config (key, value) VALUES ('menu_text', 'Welcome to the Task Bot! Complete tasks to earn INR.') ON CONFLICT (key) DO NOTHING")
-    cursor.execute("INSERT INTO config (key, value) VALUES ('bot_status', 'ON') ON CONFLICT (key) DO NOTHING")
-    cursor.execute("INSERT INTO config (key, value) VALUES ('withdrawal_status', 'ON') ON CONFLICT (key) DO NOTHING")
-    cursor.execute("INSERT INTO config (key, value) VALUES ('total_wd_processed', '0') ON CONFLICT (key) DO NOTHING")
-    cursor.execute("INSERT INTO config (key, value) VALUES ('payment_api_url', '') ON CONFLICT (key) DO NOTHING")
-    cursor.execute("INSERT INTO config (key, value) VALUES ('payment_status_url', '') ON CONFLICT (key) DO NOTHING")
-    cursor.execute("INSERT INTO config (key, value) VALUES ('min_withdrawal', '10') ON CONFLICT (key) DO NOTHING")
-    cursor.execute("INSERT INTO config (key, value) VALUES ('max_withdrawal', '10000') ON CONFLICT (key) DO NOTHING")
-    cursor.execute("INSERT INTO config (key, value) VALUES ('withdrawal_tax', '0') ON CONFLICT (key) DO NOTHING")
-
-    conn.commit()
-    cursor.close()
-    # Put connection back into the pool
-    db_pool.putconn(conn)
-
-init_db()
-
-def db_query(query, params=(), commit=False, fetchall=False, fetchone=False):
+async def db_query(query, params=(), commit=False, fetchall=False, fetchone=False):
     pg_query = query.replace('?', '%s')
     
-    # Grab a connection instantly from the pool
-    conn = db_pool.getconn()
-    cursor = conn.cursor()
-    
-    cursor.execute(pg_query, params)
-    res = None
-    if commit: conn.commit()
-    if fetchall: res = cursor.fetchall()
-    elif fetchone: res = cursor.fetchone()
-    
-    cursor.close()
-    # Return connection to the pool immediately
-    db_pool.putconn(conn)
-    return res
+    # Non-blocking context manager safely manages the connection and puts it back
+    async with db_pool.acquire() as conn:
+        async with conn.cursor() as cursor:
+            await cursor.execute(pg_query, params)
+            res = None
+            if fetchall: 
+                res = await cursor.fetchall()
+            elif fetchone: 
+                res = await cursor.fetchone()
+            
+            if commit: 
+                await conn.commit()
+            return res
 
-def reset_task_password(tid):
-    t = db_query("SELECT task_data FROM tasks WHERE id=?", (tid,), fetchone=True)
+async def reset_task_password(tid):
+    t = await db_query("SELECT task_data FROM tasks WHERE id=?", (tid,), fetchone=True)
     if t:
         username = t[0].split(":")[0]
         new_pass = generate_password()
-        db_query("UPDATE tasks SET task_data=? WHERE id=?", (f"{username}:{new_pass}", tid), commit=True)
+        await db_query("UPDATE tasks SET task_data=? WHERE id=?", (f"{username}:{new_pass}", tid), commit=True)
 
 async def check_user_joined_channels(bot, user_id):
-    channels = db_query("SELECT chat_id FROM channels", fetchall=True)
+    channels = await db_query("SELECT chat_id FROM channels", fetchall=True)
     if not channels: return True
     for row in channels:
         try:
@@ -167,8 +163,8 @@ async def check_user_joined_channels(bot, user_id):
         except: return False
     return True
 
-def get_channel_verification_keyboard():
-    channels = db_query("SELECT invite_link FROM channels", fetchall=True)
+async def get_channel_verification_keyboard():
+    channels = await db_query("SELECT invite_link FROM channels", fetchall=True)
     keyboard = []
     row = []
     for i, row_data in enumerate(channels):
@@ -183,10 +179,7 @@ def get_channel_verification_keyboard():
     return InlineKeyboardMarkup(keyboard)
 
 def get_webapp_verify_keyboard(bot_username, safe_name, user_id):
-    # Generates dynamic URL, bypassing Telegram cache & passes user data cleanly
     cache_buster_url = f"{WEBAPP_URL.rstrip('/')}/index.html?v={int(datetime.now().timestamp())}&bot={bot_username}&name={safe_name}&uid={user_id}"
-    
-    # Beautiful Inline Button restored safely
     keyboard = [
         [InlineKeyboardButton("✅ Verify Your Device", web_app=WebAppInfo(url=cache_buster_url))]
     ]
@@ -202,12 +195,12 @@ def get_main_menu_keyboard(user_id):
         keyboard.append([KeyboardButton("⚙️ Admin Panel")])
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
-def get_admin_panel_text():
-    min_wd = db_query("SELECT value FROM config WHERE key='min_withdrawal'", fetchone=True)[0]
-    max_wd = db_query("SELECT value FROM config WHERE key='max_withdrawal'", fetchone=True)[0]
-    wd_tax = db_query("SELECT value FROM config WHERE key='withdrawal_tax'", fetchone=True)[0]
-    api_link = db_query("SELECT value FROM config WHERE key='payment_api_url'", fetchone=True)[0]
-    status_link = db_query("SELECT value FROM config WHERE key='payment_status_url'", fetchone=True)[0]
+async def get_admin_panel_text():
+    min_wd = (await db_query("SELECT value FROM config WHERE key='min_withdrawal'", fetchone=True))[0]
+    max_wd = (await db_query("SELECT value FROM config WHERE key='max_withdrawal'", fetchone=True))[0]
+    wd_tax = (await db_query("SELECT value FROM config WHERE key='withdrawal_tax'", fetchone=True))[0]
+    api_link = (await db_query("SELECT value FROM config WHERE key='payment_api_url'", fetchone=True))[0]
+    status_link = (await db_query("SELECT value FROM config WHERE key='payment_status_url'", fetchone=True))[0]
     
     return (
         "⚙️ **Admin Panel**\n\n"
@@ -237,10 +230,10 @@ def get_admin_panel_keyboard():
 
 async def task_timeout_monitor(context: ContextTypes.DEFAULT_TYPE):
     cutoff = (datetime.now() - timedelta(minutes=30)).isoformat()
-    expired = db_query("SELECT id, assigned_to, message_id FROM tasks WHERE status = 'assigned' AND assigned_at < ?", (cutoff,), fetchall=True)
+    expired = await db_query("SELECT id, assigned_to, message_id FROM tasks WHERE status = 'assigned' AND assigned_at < ?", (cutoff,), fetchall=True)
     for tid, uid, mid in expired:
-        reset_task_password(tid)
-        db_query("UPDATE tasks SET status = 'available', assigned_to = NULL, assigned_at = NULL, message_id = NULL WHERE id = ?", (tid,), commit=True)
+        await reset_task_password(tid)
+        await db_query("UPDATE tasks SET status = 'available', assigned_to = NULL, assigned_at = NULL, message_id = NULL WHERE id = ?", (tid,), commit=True)
         if mid:
             try: await context.bot.delete_message(chat_id=uid, message_id=mid)
             except: pass
@@ -250,13 +243,13 @@ async def task_timeout_monitor(context: ContextTypes.DEFAULT_TYPE):
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id, username = update.effective_user.id, update.effective_user.username or "Unknown"
 
-    bot_status = db_query("SELECT value FROM config WHERE key='bot_status'", fetchone=True)[0]
+    bot_status = (await db_query("SELECT value FROM config WHERE key='bot_status'", fetchone=True))[0]
 
     if bot_status == 'OFF' and user_id not in ADMIN_IDS:
         await update.message.reply_text("⚠️ Maintenance mode.")
         return
 
-    user = db_query("SELECT is_banned, device_verified FROM users WHERE user_id = ?", (user_id,), fetchone=True)
+    user = await db_query("SELECT is_banned, device_verified FROM users WHERE user_id = ?", (user_id,), fetchone=True)
 
     if user and user[0] == 1:
         await update.message.reply_text("❌ Access Denied.")
@@ -267,7 +260,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if context.args and context.args[0].isdigit() and int(context.args[0]) != user_id:
             ref_id = int(context.args[0])
 
-        db_query(
+        await db_query(
             "INSERT INTO users (user_id, username, referred_by, device_verified) VALUES (?, ?, ?, 0) ON CONFLICT (user_id) DO NOTHING",
             (user_id, username, ref_id),
             commit=True
@@ -276,12 +269,10 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         device_verified = user[1]
 
-    # Handle the automatic Deep Link Redirect from the WebApp for Device Verification
     if context.args and context.args[0].startswith("v_"):
         hw_id = context.args[0][2:]
         
-        # Security Block: Strictly checks if this token is already verified by another user
-        existing_device = db_query("SELECT user_id FROM users WHERE hw_id = ? AND user_id != ?", (hw_id, user_id), fetchone=True)
+        existing_device = await db_query("SELECT user_id FROM users WHERE hw_id = ? AND user_id != ?", (hw_id, user_id), fetchone=True)
         if existing_device:
             await update.message.reply_text(
                 "❌ **Security Violation Detected**\n\nThis physical device is already linked to another Telegram account. Multiple accounts on a single device are strictly prohibited.", 
@@ -289,19 +280,17 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
             
-        # Verify user and save their device hardware ID securely
-        db_query("UPDATE users SET device_verified=1, hw_id=? WHERE user_id=?", (hw_id, user_id), commit=True)
+        await db_query("UPDATE users SET device_verified=1, hw_id=? WHERE user_id=?", (hw_id, user_id), commit=True)
         device_verified = 1
         await update.message.reply_text("✅ *Device Verified Successfully!*", parse_mode="Markdown")
 
-    # If verified, trigger main menu automatically without asking again
     if device_verified == 1:
-        menu_text = db_query("SELECT value FROM config WHERE key='menu_text'", fetchone=True)[0]
+        menu_text = (await db_query("SELECT value FROM config WHERE key='menu_text'", fetchone=True))[0]
         await update.message.reply_text(menu_text, reply_markup=get_main_menu_keyboard(user_id))
         return
 
     if not await check_user_joined_channels(context.bot, user_id) and user_id not in ADMIN_IDS:
-        await update.message.reply_text("⚠️ Join channels first:", reply_markup=get_channel_verification_keyboard())
+        await update.message.reply_text("⚠️ Join channels first:", reply_markup=await get_channel_verification_keyboard())
         return
 
     bot_user = await context.bot.get_me()
@@ -321,7 +310,7 @@ async def handle_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if data == "check_membership":
         if await check_user_joined_channels(context.bot, user_id):
-            user = db_query("SELECT device_verified FROM users WHERE user_id = ?", (user_id,), fetchone=True)
+            user = await db_query("SELECT device_verified FROM users WHERE user_id = ?", (user_id,), fetchone=True)
             device_verified = user[0] if user else 0
             
             if not device_verified and user_id not in ADMIN_IDS:
@@ -335,44 +324,44 @@ async def handle_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     reply_markup=get_webapp_verify_keyboard(bot_user.username, safe_name, user_id)
                 )
             else:
-                menu_text = db_query("SELECT value FROM config WHERE key='menu_text'", fetchone=True)[0]
+                menu_text = (await db_query("SELECT value FROM config WHERE key='menu_text'", fetchone=True))[0]
                 await query.message.delete()
                 await context.bot.send_message(chat_id=user_id, text="✅ All Verifications Complete!\n\n" + menu_text, reply_markup=get_main_menu_keyboard(user_id))
         else: 
-            await query.message.edit_text("❌ Join all channels.", reply_markup=get_channel_verification_keyboard())
+            await query.message.edit_text("❌ Join all channels.", reply_markup=await get_channel_verification_keyboard())
         return
 
     if data == "admin_panel" and user_id in ADMIN_IDS:
-        await query.message.edit_text(get_admin_panel_text(), parse_mode="Markdown", reply_markup=get_admin_panel_keyboard())
+        await query.message.edit_text(await get_admin_panel_text(), parse_mode="Markdown", reply_markup=get_admin_panel_keyboard())
 
     elif data == "adm_verify_user" and user_id in ADMIN_IDS:
         context.user_data['state'] = 'ADM_VERIFY_USER'
         await query.message.reply_text("Enter User ID to manually verify:")
 
     elif data == "adm_stats" and user_id in ADMIN_IDS:
-        total_u = db_query("SELECT COUNT(*) FROM users", fetchone=True)[0]
-        total_t = db_query("SELECT COUNT(*) FROM tasks WHERE status='completed'", fetchone=True)[0]
-        total_wd = db_query("SELECT value FROM config WHERE key='total_wd_processed'", fetchone=True)[0]
+        total_u = (await db_query("SELECT COUNT(*) FROM users", fetchone=True))[0]
+        total_t = (await db_query("SELECT COUNT(*) FROM tasks WHERE status='completed'", fetchone=True))[0]
+        total_wd = (await db_query("SELECT value FROM config WHERE key='total_wd_processed'", fetchone=True))[0]
         verified_u = 0
-        all_u = db_query("SELECT user_id FROM users", fetchall=True)
+        all_u = await db_query("SELECT user_id FROM users", fetchall=True)
         for u in all_u:
             if await check_user_joined_channels(context.bot, u[0]): verified_u += 1
         stats_msg = f"Total users in bot :- \"{total_u}\"\n\nTotal verified users :- \"{verified_u}\"\n\nTotal withdrawal:- \"₹{total_wd}\"\n\nTotal tasks completed:- \"{total_t}\""
         await query.message.reply_text(stats_msg)
     
     elif data == "main_menu":
-        menu_text = db_query("SELECT value FROM config WHERE key='menu_text'", fetchone=True)[0]
+        menu_text = (await db_query("SELECT value FROM config WHERE key='menu_text'", fetchone=True))[0]
         await query.message.delete()
         await context.bot.send_message(chat_id=user_id, text=menu_text, reply_markup=get_main_menu_keyboard(user_id))
     
     elif data == "get_task":
         if not await check_user_joined_channels(context.bot, user_id) and user_id not in ADMIN_IDS:
-            await query.message.reply_text("⚠️ You must join all channels to get tasks.", reply_markup=get_channel_verification_keyboard())
+            await query.message.reply_text("⚠️ You must join all channels to get tasks.", reply_markup=await get_channel_verification_keyboard())
             return
             
-        active = db_query("SELECT id FROM tasks WHERE assigned_to = ? AND status = 'assigned'", (user_id,), fetchone=True)
+        active = await db_query("SELECT id FROM tasks WHERE assigned_to = ? AND status = 'assigned'", (user_id,), fetchone=True)
         if active: await query.message.reply_text("⚠️ Finish active task first."); return
-        task = db_query("SELECT id, task_data FROM tasks WHERE status = 'available' LIMIT 1", fetchone=True)
+        task = await db_query("SELECT id, task_data FROM tasks WHERE status = 'available' LIMIT 1", fetchone=True)
         if not task: await query.message.reply_text("📭 No tasks."); return
         
         tid, tdata = task
@@ -382,26 +371,26 @@ async def handle_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
         msg_text = f"TASK ID :- \"{tid}\"\n\nUSERNAME :- `{t_user}`\n\nPASSWORD :- `{t_pass}`\n\nTASK TIMEOUT IN 30MINS."
         sent_msg = await query.message.reply_text(msg_text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("✅ Submit", callback_data=f"subm_t_{tid}"), InlineKeyboardButton("❌ Cancel", callback_data=f"canc_t_{tid}")]]))
         
-        db_query("UPDATE tasks SET status = 'assigned', assigned_to = ?, assigned_at = ?, message_id = ? WHERE id = ?", (user_id, datetime.now().isoformat(), sent_msg.message_id, tid), commit=True)
+        await db_query("UPDATE tasks SET status = 'assigned', assigned_to = ?, assigned_at = ?, message_id = ? WHERE id = ?", (user_id, datetime.now().isoformat(), sent_msg.message_id, tid), commit=True)
 
     elif data.startswith("canc_t_"):
         tid = int(data.split("_")[2])
-        t = db_query("SELECT message_id FROM tasks WHERE id=?", (tid,), fetchone=True)
+        t = await db_query("SELECT message_id FROM tasks WHERE id=?", (tid,), fetchone=True)
         if t and t[0]:
             try: await context.bot.delete_message(chat_id=user_id, message_id=t[0])
             except: pass
             
-        reset_task_password(tid)
-        db_query("UPDATE tasks SET status='available', assigned_to=NULL, assigned_at=NULL, message_id=NULL WHERE id=? AND assigned_to=?", (tid, user_id), commit=True)
+        await reset_task_password(tid)
+        await db_query("UPDATE tasks SET status='available', assigned_to=NULL, assigned_at=NULL, message_id=NULL WHERE id=? AND assigned_to=?", (tid, user_id), commit=True)
         try: await query.message.edit_text("❌ Task canceled. It is now back in the public queue.")
         except: await context.bot.send_message(user_id, "❌ Task canceled. It is now back in the public queue.")
     
     elif data.startswith("subm_t_"):
         tid = int(data.split("_")[2])
-        db_query("UPDATE tasks SET status = 'pending_approval' WHERE id = ?", (tid,), commit=True)
+        await db_query("UPDATE tasks SET status = 'pending_approval' WHERE id = ?", (tid,), commit=True)
         await query.message.edit_text("⏳ Submitted for approval. You can now get another task!")
         
-        t_info = db_query("SELECT assigned_to, task_data FROM tasks WHERE id=?", (tid,), fetchone=True)
+        t_info = await db_query("SELECT assigned_to, task_data FROM tasks WHERE id=?", (tid,), fetchone=True)
         try: 
             t_user, t_pass = t_info[1].split(":")
         except: 
@@ -417,17 +406,17 @@ async def handle_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
         act = parts[1]
         tid = int(parts[3])
         
-        uid_row = db_query("SELECT assigned_to FROM tasks WHERE id=?", (tid,), fetchone=True)
+        uid_row = await db_query("SELECT assigned_to FROM tasks WHERE id=?", (tid,), fetchone=True)
         uid = uid_row[0] if uid_row else None
         
         if act == 'app':
-            db_query("UPDATE tasks SET status='completed' WHERE id=?", (tid,), commit=True)
+            await db_query("UPDATE tasks SET status='completed' WHERE id=?", (tid,), commit=True)
             if uid:
-                db_query("UPDATE users SET balance=balance+15 WHERE user_id=?", (uid,), commit=True)
+                await db_query("UPDATE users SET balance=balance+15 WHERE user_id=?", (uid,), commit=True)
             status_msg = "APPROVED"
         else:
-            reset_task_password(tid)
-            db_query("UPDATE tasks SET status='available', assigned_to=NULL, assigned_at=NULL, message_id=NULL WHERE id=?", (tid,), commit=True)
+            await reset_task_password(tid)
+            await db_query("UPDATE tasks SET status='available', assigned_to=NULL, assigned_at=NULL, message_id=NULL WHERE id=?", (tid,), commit=True)
             status_msg = "REJECTED"
         
         if uid:
@@ -439,7 +428,7 @@ async def handle_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.message.edit_text(f"✅ Task {tid} processed as {status_msg}.")
 
     elif data == "wallet":
-        u = db_query("SELECT balance, upi_id FROM users WHERE user_id=?", (user_id,), fetchone=True)
+        u = await db_query("SELECT balance, upi_id FROM users WHERE user_id=?", (user_id,), fetchone=True)
         await query.message.edit_text(f"💳 Balance: ₹{u[0]:.2f}\nUPI: `{u[1] or 'None'}`", parse_mode="Markdown", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔗 Link UPI", callback_data="add_upi")], [InlineKeyboardButton("💸 Withdraw", callback_data="withdraw")], [InlineKeyboardButton("⬅️ Back", callback_data="main_menu")]]))
     
     elif data == "add_upi": context.user_data['state'] = 'WAITING_UPI'; await query.message.reply_text("Send UPI:")
@@ -453,17 +442,17 @@ async def handle_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.message.edit_text("Select Withdrawal Method:", reply_markup=InlineKeyboardMarkup(kb))
         
     elif data in ["wd_instant", "wd_manual"]:
-        wd_s = db_query("SELECT value FROM config WHERE key='withdrawal_status'", fetchone=True)[0]
+        wd_s = (await db_query("SELECT value FROM config WHERE key='withdrawal_status'", fetchone=True))[0]
         if wd_s == 'OFF': await query.message.reply_text("⚠️ Withdrawals are currently OFF"); return
         
-        u = db_query("SELECT balance, upi_id FROM users WHERE user_id=?", (user_id,), fetchone=True)
+        u = await db_query("SELECT balance, upi_id FROM users WHERE user_id=?", (user_id,), fetchone=True)
         if not u[1]: await query.message.reply_text("❌ Please link your UPI ID first from the wallet menu."); return
         if u[0] <= 0: await query.message.reply_text("❌ Insufficient balance."); return
         
         wd_type = data.split('_')[1].upper()
         context.user_data['state'] = f'WAITING_WD_AMOUNT_{wd_type}'
         
-        max_wd = db_query("SELECT value FROM config WHERE key='max_withdrawal'", fetchone=True)[0]
+        max_wd = (await db_query("SELECT value FROM config WHERE key='max_withdrawal'", fetchone=True))[0]
         await query.message.reply_text(f"Enter Amount for {wd_type} withdrawal (Wallet: ₹{u[0]}, Max/Txn: ₹{max_wd}):")
 
     elif data in ["wd_confirm", "wd_cancel"]:
@@ -473,7 +462,7 @@ async def handle_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
             
         if data == "wd_cancel":
-            db_query("UPDATE users SET balance=balance+? WHERE user_id=?", (temp_wd['amount'], user_id), commit=True)
+            await db_query("UPDATE users SET balance=balance+? WHERE user_id=?", (temp_wd['amount'], user_id), commit=True)
             await query.message.edit_text("❌ Withdrawal Cancelled. Amount has been refunded to your wallet.")
             return
             
@@ -496,10 +485,10 @@ async def handle_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     except: pass
 
             elif wd_type == 'INSTANT':
-                api_url = db_query("SELECT value FROM config WHERE key='payment_api_url'", fetchone=True)
+                api_url = await db_query("SELECT value FROM config WHERE key='payment_api_url'", fetchone=True)
                 if not api_url or not api_url[0]:
                     await query.message.edit_text("❌ API not configured by admin. Refunding balance.")
-                    db_query("UPDATE users SET balance=balance+? WHERE user_id=?", (amt, user_id), commit=True)
+                    await db_query("UPDATE users SET balance=balance+? WHERE user_id=?", (amt, user_id), commit=True)
                     return
                 
                 formatted_url = api_url[0].replace("{upi id}", u_upi).replace("{amount}", str(actual_amt))
@@ -515,7 +504,7 @@ async def handle_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     txn_id = "UNKNOWN"
                     comment = str(e)[:100]
                 
-                status_api_url = db_query("SELECT value FROM config WHERE key='payment_status_url'", fetchone=True)[0]
+                status_api_url = (await db_query("SELECT value FROM config WHERE key='payment_status_url'", fetchone=True))[0]
                 
                 params = {
                     'uid': user_id,
@@ -536,30 +525,30 @@ async def handle_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     try: await context.bot.send_message(admin, adm_msg, parse_mode="Markdown")
                     except: pass
                     
-                cur_total = float(db_query("SELECT value FROM config WHERE key='total_wd_processed'", fetchone=True)[0])
-                db_query("UPDATE config SET value=? WHERE key='total_wd_processed'", (str(cur_total + actual_amt),), commit=True)
+                cur_total = float((await db_query("SELECT value FROM config WHERE key='total_wd_processed'", fetchone=True))[0])
+                await db_query("UPDATE config SET value=? WHERE key='total_wd_processed'", (str(cur_total + actual_amt),), commit=True)
 
     elif data == "refer_earn":
         bot_me = await context.bot.get_me()
-        c = db_query("SELECT COUNT(*) FROM users WHERE referred_by=?", (user_id,), fetchone=True)[0]
+        c = (await db_query("SELECT COUNT(*) FROM users WHERE referred_by=?", (user_id,), fetchone=True))[0]
         await query.message.edit_text(f"👥 Referrals: {c}\nLink: `t.me/{bot_me.username}?start={user_id}`", parse_mode="Markdown", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="main_menu")]]))
     
     elif data == "adm_bulk": context.user_data['state'] = 'ADM_WAITING_BULK'; await query.message.reply_text("Format: `u,u,u,...` (Usernames separated by comma)")
     
     elif data == "adm_pending_tasks" and user_id in ADMIN_IDS:
-        tks = db_query("SELECT id, task_data FROM tasks WHERE status='available'", fetchall=True)
+        tks = await db_query("SELECT id, task_data FROM tasks WHERE status='available'", fetchall=True)
         kb = [[InlineKeyboardButton("🗑️ Clear All", callback_data="adm_del_all_tasks")], [InlineKeyboardButton("🗑️ Delete Indiv", callback_data="adm_del_indiv_task")], [InlineKeyboardButton("⬅️ Back", callback_data="admin_panel")]]
         msg = "📋 Available Tasks:\n\n" + "\n".join([f"ID {t[0]}: {t[1].split(':')[0]}" for t in tks]) if tks else "No available tasks."
         await query.message.edit_text(msg[:4000], reply_markup=InlineKeyboardMarkup(kb))
     
     elif data == "adm_del_all_tasks" and user_id in ADMIN_IDS:
-        db_query("DELETE FROM tasks WHERE status='available'", commit=True); await query.message.reply_text("Queue cleared.")
+        await db_query("DELETE FROM tasks WHERE status='available'", commit=True); await query.message.reply_text("Queue cleared.")
     
     elif data == "adm_del_indiv_task" and user_id in ADMIN_IDS:
         context.user_data['state'] = 'ADM_DEL_INDIV'; await query.message.reply_text("Enter Task ID to delete:")
 
     elif data == "adm_list_task_app":
-        p = db_query("SELECT id, assigned_to, task_data, assigned_at FROM tasks WHERE status='pending_approval'", fetchall=True)
+        p = await db_query("SELECT id, assigned_to, task_data, assigned_at FROM tasks WHERE status='pending_approval'", fetchall=True)
         if not p: await query.message.reply_text("No pending approvals."); return
         for t in p: 
             tid, assigned_to, task_data, assigned_at = t
@@ -598,11 +587,11 @@ async def handle_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
         wd = context.bot_data.get('withdrawals', {}).pop(wid, None)
         if wd:
             if act == 'app':
-                cur_total = float(db_query("SELECT value FROM config WHERE key='total_wd_processed'", fetchone=True)[0])
-                db_query("UPDATE config SET value=? WHERE key='total_wd_processed'", (str(cur_total + wd['amount']),), commit=True)
+                cur_total = float((await db_query("SELECT value FROM config WHERE key='total_wd_processed'", fetchone=True))[0])
+                await db_query("UPDATE config SET value=? WHERE key='total_wd_processed'", (str(cur_total + wd['amount']),), commit=True)
                 status_msg = "APPROVED"
             else:
-                db_query("UPDATE users SET balance=balance+? WHERE user_id=?", (wd['amount'], wd['user_id']), commit=True)
+                await db_query("UPDATE users SET balance=balance+? WHERE user_id=?", (wd['amount'], wd['user_id']), commit=True)
                 status_msg = "REJECTED"
             
             try:
@@ -619,16 +608,16 @@ async def handle_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data == "adm_unban": context.user_data['state'] = 'ADM_UNBAN'; await query.message.reply_text("ID to unban:")
     
     elif data == "adm_tog_wd":
-        c = db_query("SELECT value FROM config WHERE key='withdrawal_status'", fetchone=True)[0]
-        s = 'OFF' if c == 'ON' else 'ON'; db_query("UPDATE config SET value=? WHERE key='withdrawal_status'", (s,), commit=True); await query.message.reply_text(f"WD {s}")
+        c = (await db_query("SELECT value FROM config WHERE key='withdrawal_status'", fetchone=True))[0]
+        s = 'OFF' if c == 'ON' else 'ON'; await db_query("UPDATE config SET value=? WHERE key='withdrawal_status'", (s,), commit=True); await query.message.reply_text(f"WD {s}")
     elif data == "adm_tog_bot":
-        c = db_query("SELECT value FROM config WHERE key='bot_status'", fetchone=True)[0]
-        s = 'OFF' if c == 'ON' else 'ON'; db_query("UPDATE config SET value=? WHERE key='bot_status'", (s,), commit=True); await query.message.reply_text(f"Bot {s}")
+        c = (await db_query("SELECT value FROM config WHERE key='bot_status'", fetchone=True))[0]
+        s = 'OFF' if c == 'ON' else 'ON'; await db_query("UPDATE config SET value=? WHERE key='bot_status'", (s,), commit=True); await query.message.reply_text(f"Bot {s}")
     
     elif data == "adm_chk_bal": context.user_data['state'] = 'ADM_CHK_BAL'; await query.message.reply_text("ID:")
     elif data == "adm_mod_bal": context.user_data['state'] = 'ADM_MOD_BAL'; await query.message.reply_text("Format: `id:amt`")
     elif data == "adm_top_bal":
-        t = db_query("SELECT user_id, balance FROM users ORDER BY balance DESC LIMIT 10", fetchall=True)
+        t = await db_query("SELECT user_id, balance FROM users ORDER BY balance DESC LIMIT 10", fetchall=True)
         await query.message.reply_text("\n".join([f"{i+1}) {r[0]} - ₹{r[1]:.2f}" for i, r in enumerate(t)]))
     
     elif data == "adm_chg_text": context.user_data['state'] = 'ADM_CHG_TEXT'; await query.message.reply_text("New Menu Text:")
@@ -659,7 +648,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip()
     state = context.user_data.get('state')
 
-    user = db_query("SELECT is_banned, device_verified FROM users WHERE user_id = ?", (user_id,), fetchone=True)
+    user = await db_query("SELECT is_banned, device_verified FROM users WHERE user_id = ?", (user_id,), fetchone=True)
     if not user:
         await update.message.reply_text("⚠️ Please send /start first.")
         return
@@ -674,13 +663,13 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
     if not await check_user_joined_channels(context.bot, user_id) and user_id not in ADMIN_IDS:
-        await update.message.reply_text("⚠️ Join channels first to continue.", reply_markup=get_channel_verification_keyboard())
+        await update.message.reply_text("⚠️ Join channels first to continue.", reply_markup=await get_channel_verification_keyboard())
         return
 
     if text == "📝 Get Task":
-        active = db_query("SELECT id FROM tasks WHERE assigned_to = ? AND status = 'assigned'", (user_id,), fetchone=True)
+        active = await db_query("SELECT id FROM tasks WHERE assigned_to = ? AND status = 'assigned'", (user_id,), fetchone=True)
         if active: await update.message.reply_text("⚠️ Finish active task first."); return
-        task = db_query("SELECT id, task_data FROM tasks WHERE status = 'available' LIMIT 1", fetchone=True)
+        task = await db_query("SELECT id, task_data FROM tasks WHERE status = 'available' LIMIT 1", fetchone=True)
         if not task: await update.message.reply_text("📭 No tasks."); return
         
         tid, tdata = task
@@ -690,16 +679,16 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         msg_text = f"TASK ID :- \"{tid}\"\n\nUSERNAME :- `{t_user}`\n\nPASSWORD :- `{t_pass}`\n\nTASK TIMEOUT IN 30MINS."
         sent_msg = await update.message.reply_text(msg_text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("✅ Submit", callback_data=f"subm_t_{tid}"), InlineKeyboardButton("❌ Cancel", callback_data=f"canc_t_{tid}")]]))
         
-        db_query("UPDATE tasks SET status = 'assigned', assigned_to = ?, assigned_at = ?, message_id = ? WHERE id = ?", (user_id, datetime.now().isoformat(), sent_msg.message_id, tid), commit=True)
+        await db_query("UPDATE tasks SET status = 'assigned', assigned_to = ?, assigned_at = ?, message_id = ? WHERE id = ?", (user_id, datetime.now().isoformat(), sent_msg.message_id, tid), commit=True)
         return
 
     elif text == "💰 Wallet":
-        u = db_query("SELECT balance, upi_id FROM users WHERE user_id=?", (user_id,), fetchone=True)
+        u = await db_query("SELECT balance, upi_id FROM users WHERE user_id=?", (user_id,), fetchone=True)
         await update.message.reply_text(f"💳 Balance: ₹{u[0]:.2f}\nUPI: `{u[1] or 'None'}`", parse_mode="Markdown", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔗 Link UPI", callback_data="add_upi")], [InlineKeyboardButton("💸 Withdraw", callback_data="withdraw")]]))
         return
 
     elif text == "💸 Withdraw":
-        wd_s = db_query("SELECT value FROM config WHERE key='withdrawal_status'", fetchone=True)[0]
+        wd_s = (await db_query("SELECT value FROM config WHERE key='withdrawal_status'", fetchone=True))[0]
         if wd_s == 'OFF': await update.message.reply_text("⚠️ WD OFF"); return
         
         kb = [
@@ -711,7 +700,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     elif text == "👥 Refer & Earn":
         bot_me = await context.bot.get_me()
-        c = db_query("SELECT COUNT(*) FROM users WHERE referred_by=?", (user_id,), fetchone=True)[0]
+        c = (await db_query("SELECT COUNT(*) FROM users WHERE referred_by=?", (user_id,), fetchone=True))[0]
         await update.message.reply_text(f"👥 Referrals: {c}\nLink: `t.me/{bot_me.username}?start={user_id}`", parse_mode="Markdown")
         return
 
@@ -721,7 +710,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     elif text == "⚙️ Admin Panel" and user_id in ADMIN_IDS:
-        await update.message.reply_text(get_admin_panel_text(), parse_mode="Markdown", reply_markup=get_admin_panel_keyboard())
+        await update.message.reply_text(await get_admin_panel_text(), parse_mode="Markdown", reply_markup=get_admin_panel_keyboard())
         return
 
     if not state: return
@@ -730,11 +719,11 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if state == 'ADM_VERIFY_USER' and user_id in ADMIN_IDS:
         if text.isdigit():
             target_id = int(text)
-            db_query("UPDATE users SET device_verified=1 WHERE user_id=?", (target_id,), commit=True)
+            await db_query("UPDATE users SET device_verified=1 WHERE user_id=?", (target_id,), commit=True)
             await update.message.reply_text(f"✅ User {target_id} has been manually verified and can now access the bot.")
             
             try:
-                menu_text = db_query("SELECT value FROM config WHERE key='menu_text'", fetchone=True)[0]
+                menu_text = (await db_query("SELECT value FROM config WHERE key='menu_text'", fetchone=True))[0]
                 await context.bot.send_message(
                     chat_id=target_id, 
                     text="✅ You have been manually verified by an Admin!\n\n" + menu_text, 
@@ -745,17 +734,17 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             await update.message.reply_text("❌ Invalid User ID. Please enter numbers only.")
 
-    elif state == 'WAITING_UPI': db_query("UPDATE users SET upi_id=? WHERE user_id=?", (text, user_id), commit=True); await update.message.reply_text("UPI Linked.")
+    elif state == 'WAITING_UPI': await db_query("UPDATE users SET upi_id=? WHERE user_id=?", (text, user_id), commit=True); await update.message.reply_text("UPI Linked.")
     
     elif state.startswith('WAITING_WD_AMOUNT_'):
         wd_type = state.split('_')[3]
         try: amt = float(text)
         except: await update.message.reply_text("❌ Invalid amount format."); return
         
-        u = db_query("SELECT balance, upi_id FROM users WHERE user_id=?", (user_id,), fetchone=True)
-        min_wd = float(db_query("SELECT value FROM config WHERE key='min_withdrawal'", fetchone=True)[0])
-        max_wd = float(db_query("SELECT value FROM config WHERE key='max_withdrawal'", fetchone=True)[0])
-        wd_tax = float(db_query("SELECT value FROM config WHERE key='withdrawal_tax'", fetchone=True)[0])
+        u = await db_query("SELECT balance, upi_id FROM users WHERE user_id=?", (user_id,), fetchone=True)
+        min_wd = float((await db_query("SELECT value FROM config WHERE key='min_withdrawal'", fetchone=True))[0])
+        max_wd = float((await db_query("SELECT value FROM config WHERE key='max_withdrawal'", fetchone=True))[0])
+        wd_tax = float((await db_query("SELECT value FROM config WHERE key='withdrawal_tax'", fetchone=True))[0])
         
         if amt < min_wd:
             await update.message.reply_text(f"min. Withdrawal is {min_wd} reenter amount more than min. withdrawal")
@@ -773,7 +762,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     await update.message.reply_text("❌ Amount entered is too low to cover the instantaneous withdrawal tax.")
                     return
                     
-            db_query("UPDATE users SET balance=balance-? WHERE user_id=?", (amt, user_id), commit=True)
+            await db_query("UPDATE users SET balance=balance-? WHERE user_id=?", (amt, user_id), commit=True)
 
             context.user_data['temp_wd'] = {
                 'amount': amt,
@@ -794,9 +783,9 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     elif state == 'ADM_LOOKUP_TASK':
         if text.isdigit():
-            t = db_query("SELECT status, assigned_to, assigned_at, task_data FROM tasks WHERE id=?", (int(text),), fetchone=True)
+            t = await db_query("SELECT status, assigned_to, assigned_at, task_data FROM tasks WHERE id=?", (int(text),), fetchone=True)
         else:
-            t = db_query("SELECT status, assigned_to, assigned_at, task_data FROM tasks WHERE task_data LIKE ?", (f"{text}:%",), fetchone=True)
+            t = await db_query("SELECT status, assigned_to, assigned_at, task_data FROM tasks WHERE task_data LIKE ?", (f"{text}:%",), fetchone=True)
             
         if t:
             status_db, assigned_to_db, assigned_at_db, task_data_db = t
@@ -837,7 +826,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         for u in usernames:
             u = u.strip()
             if not u: continue
-            t = db_query("SELECT status, task_data FROM tasks WHERE task_data LIKE ?", (f"{u}:%",), fetchone=True)
+            t = await db_query("SELECT status, task_data FROM tasks WHERE task_data LIKE ?", (f"{u}:%",), fetchone=True)
             if t:
                 st, td = t[0], t[1]
                 tu, tp = td.split(":")
@@ -851,9 +840,9 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     elif state == 'ADM_PULLBACK':
         if text.isdigit():
-            t = db_query("SELECT id, assigned_to, message_id, status FROM tasks WHERE id=?", (int(text),), fetchone=True)
+            t = await db_query("SELECT id, assigned_to, message_id, status FROM tasks WHERE id=?", (int(text),), fetchone=True)
         else:
-            t = db_query("SELECT id, assigned_to, message_id, status FROM tasks WHERE task_data LIKE ?", (f"{text}:%",), fetchone=True)
+            t = await db_query("SELECT id, assigned_to, message_id, status FROM tasks WHERE task_data LIKE ?", (f"{text}:%",), fetchone=True)
             
         if t:
             tid, uid, mid, st = t
@@ -864,81 +853,85 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 try: await context.bot.send_message(uid, "THE TASK IS PULLED BY ADMINS PLEASE GET A NEW TASKS")
                 except: pass
             
-            reset_task_password(tid)
-            db_query("UPDATE tasks SET status='available', assigned_to=NULL, assigned_at=NULL, message_id=NULL WHERE id=?", (tid,), commit=True)
+            await reset_task_password(tid)
+            await db_query("UPDATE tasks SET status='available', assigned_to=NULL, assigned_at=NULL, message_id=NULL WHERE id=?", (tid,), commit=True)
             await update.message.reply_text(f"✅ Task pulled back successfully and reset into the queue.")
         else:
             await update.message.reply_text("❌ Task not found.")
 
     elif state == 'ADM_SET_API':
-        db_query("UPDATE config SET value=? WHERE key='payment_api_url'", (text,), commit=True)
+        await db_query("UPDATE config SET value=? WHERE key='payment_api_url'", (text,), commit=True)
         await update.message.reply_text("✅ Payment API Link Updated Successfully.")
         
     elif state == 'ADM_SET_STATUS_LINK':
-        db_query("UPDATE config SET value=? WHERE key='payment_status_url'", (text,), commit=True)
+        await db_query("UPDATE config SET value=? WHERE key='payment_status_url'", (text,), commit=True)
         await update.message.reply_text("✅ Payment Status Link Updated Successfully.")
 
     elif state == 'ADM_SET_MIN_WD':
         try: float(text)
         except: await update.message.reply_text("❌ Need numbers."); return
-        db_query("UPDATE config SET value=? WHERE key='min_withdrawal'", (text,), commit=True)
+        await db_query("UPDATE config SET value=? WHERE key='min_withdrawal'", (text,), commit=True)
         await update.message.reply_text("✅ Min Withdrawal Amount Updated.")
         
     elif state == 'ADM_SET_MAX_WD':
         try: float(text)
         except: await update.message.reply_text("❌ Need numbers."); return
-        db_query("UPDATE config SET value=? WHERE key='max_withdrawal'", (text,), commit=True)
+        await db_query("UPDATE config SET value=? WHERE key='max_withdrawal'", (text,), commit=True)
         await update.message.reply_text("✅ Max Withdrawal Amount Updated.")
         
     elif state == 'ADM_SET_WD_TAX':
         try: float(text)
         except: await update.message.reply_text("❌ Need numbers."); return
-        db_query("UPDATE config SET value=? WHERE key='withdrawal_tax'", (text,), commit=True)
+        await db_query("UPDATE config SET value=? WHERE key='withdrawal_tax'", (text,), commit=True)
         await update.message.reply_text("✅ Withdrawal Tax Updated.")
 
     elif state == 'ADM_ADD_CHAN_DATA':
         if ":" in text: 
             cid, lnk = text.split(":", 1)
-            db_query("INSERT INTO channels (chat_id, invite_link) VALUES (?,?) ON CONFLICT (chat_id) DO UPDATE SET invite_link = EXCLUDED.invite_link", (cid.strip(), lnk.strip()), commit=True)
+            await db_query("INSERT INTO channels (chat_id, invite_link) VALUES (?,?) ON CONFLICT (chat_id) DO UPDATE SET invite_link = EXCLUDED.invite_link", (cid.strip(), lnk.strip()), commit=True)
             await update.message.reply_text("Added.")
     
-    elif state == 'ADM_REM_CHAN_DATA': db_query("DELETE FROM channels WHERE chat_id=?", (text,), commit=True); await update.message.reply_text("Deleted.")
+    elif state == 'ADM_REM_CHAN_DATA': await db_query("DELETE FROM channels WHERE chat_id=?", (text,), commit=True); await update.message.reply_text("Deleted.")
     
     elif state == 'ADM_DEL_INDIV':
-        if text.isdigit(): db_query("DELETE FROM tasks WHERE id=? AND status='available'", (int(text),), commit=True); await update.message.reply_text("Task deleted.")
+        if text.isdigit(): await db_query("DELETE FROM tasks WHERE id=? AND status='available'", (int(text),), commit=True); await update.message.reply_text("Task deleted.")
         
     elif state == 'ADM_WAITING_BULK':
         for u in text.split(","): 
             u = u.strip()
             if u:
                 p = generate_password()
-                db_query("INSERT INTO tasks (task_data) VALUES (?)", (f"{u}:{p}",), commit=True)
+                await db_query("INSERT INTO tasks (task_data) VALUES (?)", (f"{u}:{p}",), commit=True)
         await update.message.reply_text("Bulk added.")
 
     elif state == 'ADM_BROADCAST':
-        for u in db_query("SELECT user_id FROM users", fetchall=True):
+        for u in await db_query("SELECT user_id FROM users", fetchall=True):
             try: await context.bot.send_message(u[0], f"📢 **Announcement**\n\n{text}", parse_mode="Markdown")
             except: pass
     elif state == 'ADM_DM' and ":" in text:
         target, msg = text.split(":", 1)
         try: await context.bot.send_message(int(target), f"💬 **Admin Msg:** {msg}"); await update.message.reply_text("Sent.")
         except: await update.message.reply_text("Failed.")
-    elif state == 'ADM_BAN': db_query("UPDATE users SET is_banned=1 WHERE user_id=?", (int(text),), commit=True); await update.message.reply_text("Banned.")
-    elif state == 'ADM_UNBAN': db_query("UPDATE users SET is_banned=0 WHERE user_id=?", (int(text),), commit=True); await update.message.reply_text("Unbanned.")
+    elif state == 'ADM_BAN': await db_query("UPDATE users SET is_banned=1 WHERE user_id=?", (int(text),), commit=True); await update.message.reply_text("Banned.")
+    elif state == 'ADM_UNBAN': await db_query("UPDATE users SET is_banned=0 WHERE user_id=?", (int(text),), commit=True); await update.message.reply_text("Unbanned.")
     elif state == 'ADM_CHK_BAL':
-        b = db_query("SELECT balance FROM users WHERE user_id=?", (int(text),), fetchone=True)
+        b = await db_query("SELECT balance FROM users WHERE user_id=?", (int(text),), fetchone=True)
         await update.message.reply_text(f"Bal: ₹{b[0] if b else 'N/A'}")
     elif state == 'ADM_MOD_BAL' and ":" in text:
         target, amt = text.split(":", 1)
-        db_query("UPDATE users SET balance=balance+? WHERE user_id=?", (float(amt), int(target)), commit=True); await update.message.reply_text("Updated.")
-    elif state == 'ADM_CHG_TEXT': db_query("UPDATE config SET value=? WHERE key='menu_text'", (text,), commit=True); await update.message.reply_text("Menu Updated.")
+        await db_query("UPDATE users SET balance=balance+? WHERE user_id=?", (float(amt), int(target)), commit=True); await update.message.reply_text("Updated.")
+    elif state == 'ADM_CHG_TEXT': await db_query("UPDATE config SET value=? WHERE key='menu_text'", (text,), commit=True); await update.message.reply_text("Menu Updated.")
 
 def main():
-    app = Application.builder().token(TOKEN).build()
+    # The new post_init method attaches your database initialization 
+    # to the bot's background event loop exactly when it starts.
+    app = Application.builder().token(TOKEN).post_init(setup_db).build()
+    
     app.job_queue.run_repeating(task_timeout_monitor, interval=60)
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CallbackQueryHandler(handle_callbacks))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
+    
     app.run_polling()
 
 if __name__ == '__main__': main()
