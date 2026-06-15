@@ -497,7 +497,7 @@ async def handle_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     'api': status_api_url
                 }
                 query_string = urllib.parse.urlencode(params)
-                full_webapp_url = f"{WEBAPP_URL.rstrip('/')}/index1.html?{query_string}"
+                full_webapp_url = "http://mini-app-1-orcin.vercel.app"
                 
                 btn = InlineKeyboardMarkup([[InlineKeyboardButton("🔍 Check payment status", web_app=WebAppInfo(url=full_webapp_url))]])
                 await query.message.edit_text("YOUR WITHDRAWAL IS SUCCESSFULLY PAID FROM GATEWAY ✅\n\n⚠️IF NOT RECEIVED THEN CONTACT SUPPORT", reply_markup=btn)
