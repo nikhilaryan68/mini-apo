@@ -34,7 +34,7 @@ DATABASE_URL = "postgresql://postgres:nikhil2008@127.0.0.1:5432/railway"
 if not DATABASE_URL:
     raise ValueError("No DATABASE_URL provided in environment variables!")
 
-# FIXED: Main WebApp URL updated to secure Vercel link for device verification
+# Vercel WebApp Links
 WEBAPP_URL = os.getenv('WEBAPP_URL', 'https://mini-app-2-kappa.vercel.app/')
 
 admin_ids_raw = os.getenv('ADMIN_IDS', '6197579049')
@@ -55,7 +55,7 @@ def generate_password():
     nums = str(random.randint(100, 999))
     return f"{word}@{nums}"
 
-# --- Database Pool Setup (Global variable) ---
+# --- Database Pool Setup ---
 db_pool = None
 
 async def init_db():
@@ -102,6 +102,7 @@ async def init_db():
             await cursor.execute("INSERT INTO config (key, value) VALUES ('min_withdrawal', '10') ON CONFLICT (key) DO NOTHING")
             await cursor.execute("INSERT INTO config (key, value) VALUES ('max_withdrawal', '10000') ON CONFLICT (key) DO NOTHING")
             await cursor.execute("INSERT INTO config (key, value) VALUES ('withdrawal_tax', '0') ON CONFLICT (key) DO NOTHING")
+            await cursor.execute("COMMIT")
 
 async def setup_db(application: Application):
     """Initializes the connection pool on bot startup inside the event loop"""
@@ -125,6 +126,11 @@ async def db_query(query, params=(), commit=False, fetchall=False, fetchone=Fals
                 res = await cursor.fetchall()
             elif fetchone: 
                 res = await cursor.fetchone()
+            
+            # FIXED: Explicitly commands PostgreSQL to save updates
+            if commit:
+                await cursor.execute("COMMIT")
+                
             return res
 
 async def reset_task_password(tid):
@@ -179,11 +185,21 @@ def get_main_menu_keyboard(user_id):
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
 async def get_admin_panel_text():
-    min_wd = (await db_query("SELECT value FROM config WHERE key='min_withdrawal'", fetchone=True))[0]
-    max_wd = (await db_query("SELECT value FROM config WHERE key='max_withdrawal'", fetchone=True))[0]
-    wd_tax = (await db_query("SELECT value FROM config WHERE key='withdrawal_tax'", fetchone=True))[0]
-    api_link = (await db_query("SELECT value FROM config WHERE key='payment_api_url'", fetchone=True))[0]
-    status_link = (await db_query("SELECT value FROM config WHERE key='payment_status_url'", fetchone=True))[0]
+    # FIXED: Crash-proof data pulling for config variables
+    min_wd_row = await db_query("SELECT value FROM config WHERE key='min_withdrawal'", fetchone=True)
+    min_wd = min_wd_row[0] if min_wd_row else '10'
+    
+    max_wd_row = await db_query("SELECT value FROM config WHERE key='max_withdrawal'", fetchone=True)
+    max_wd = max_wd_row[0] if max_wd_row else '10000'
+    
+    wd_tax_row = await db_query("SELECT value FROM config WHERE key='withdrawal_tax'", fetchone=True)
+    wd_tax = wd_tax_row[0] if wd_tax_row else '0'
+    
+    api_link_row = await db_query("SELECT value FROM config WHERE key='payment_api_url'", fetchone=True)
+    api_link = api_link_row[0] if api_link_row else ''
+    
+    status_link_row = await db_query("SELECT value FROM config WHERE key='payment_status_url'", fetchone=True)
+    status_link = status_link_row[0] if status_link_row else ''
     
     return (
         "⚙️ **Admin Panel**\n\n"
@@ -226,7 +242,8 @@ async def task_timeout_monitor(context: ContextTypes.DEFAULT_TYPE):
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id, username = update.effective_user.id, update.effective_user.username or "Unknown"
 
-    bot_status = (await db_query("SELECT value FROM config WHERE key='bot_status'", fetchone=True))[0]
+    bot_status_row = await db_query("SELECT value FROM config WHERE key='bot_status'", fetchone=True)
+    bot_status = bot_status_row[0] if bot_status_row else 'ON'
 
     if bot_status == 'OFF' and user_id not in ADMIN_IDS:
         await update.message.reply_text("⚠️ Maintenance mode.")
@@ -268,7 +285,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("✅ *Device Verified Successfully!*", parse_mode="Markdown")
 
     if device_verified == 1:
-        menu_text = (await db_query("SELECT value FROM config WHERE key='menu_text'", fetchone=True))[0]
+        menu_text_row = await db_query("SELECT value FROM config WHERE key='menu_text'", fetchone=True)
+        menu_text = menu_text_row[0] if menu_text_row else "Welcome to the Task Bot!"
         await update.message.reply_text(menu_text, reply_markup=get_main_menu_keyboard(user_id))
         return
 
@@ -307,7 +325,8 @@ async def handle_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     reply_markup=get_webapp_verify_keyboard(bot_user.username, safe_name, user_id)
                 )
             else:
-                menu_text = (await db_query("SELECT value FROM config WHERE key='menu_text'", fetchone=True))[0]
+                menu_text_row = await db_query("SELECT value FROM config WHERE key='menu_text'", fetchone=True)
+                menu_text = menu_text_row[0] if menu_text_row else "Welcome to the Task Bot!"
                 await query.message.delete()
                 await context.bot.send_message(chat_id=user_id, text="✅ All Verifications Complete!\n\n" + menu_text, reply_markup=get_main_menu_keyboard(user_id))
         else: 
@@ -324,7 +343,9 @@ async def handle_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data == "adm_stats" and user_id in ADMIN_IDS:
         total_u = (await db_query("SELECT COUNT(*) FROM users", fetchone=True))[0]
         total_t = (await db_query("SELECT COUNT(*) FROM tasks WHERE status='completed'", fetchone=True))[0]
-        total_wd = (await db_query("SELECT value FROM config WHERE key='total_wd_processed'", fetchone=True))[0]
+        total_wd_row = await db_query("SELECT value FROM config WHERE key='total_wd_processed'", fetchone=True)
+        total_wd = total_wd_row[0] if total_wd_row else '0'
+        
         verified_u = 0
         all_u = await db_query("SELECT user_id FROM users", fetchall=True)
         for u in all_u:
@@ -333,7 +354,8 @@ async def handle_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.message.reply_text(stats_msg)
     
     elif data == "main_menu":
-        menu_text = (await db_query("SELECT value FROM config WHERE key='menu_text'", fetchone=True))[0]
+        menu_text_row = await db_query("SELECT value FROM config WHERE key='menu_text'", fetchone=True)
+        menu_text = menu_text_row[0] if menu_text_row else "Welcome to the Task Bot!"
         await query.message.delete()
         await context.bot.send_message(chat_id=user_id, text=menu_text, reply_markup=get_main_menu_keyboard(user_id))
     
@@ -425,7 +447,8 @@ async def handle_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.message.edit_text("Select Withdrawal Method:", reply_markup=InlineKeyboardMarkup(kb))
         
     elif data in ["wd_instant", "wd_manual"]:
-        wd_s = (await db_query("SELECT value FROM config WHERE key='withdrawal_status'", fetchone=True))[0]
+        wd_s_row = await db_query("SELECT value FROM config WHERE key='withdrawal_status'", fetchone=True)
+        wd_s = wd_s_row[0] if wd_s_row else 'ON'
         if wd_s == 'OFF': await query.message.reply_text("⚠️ Withdrawals are currently OFF"); return
         
         u = await db_query("SELECT balance, upi_id FROM users WHERE user_id=?", (user_id,), fetchone=True)
@@ -435,7 +458,9 @@ async def handle_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
         wd_type = data.split('_')[1].upper()
         context.user_data['state'] = f'WAITING_WD_AMOUNT_{wd_type}'
         
-        max_wd = (await db_query("SELECT value FROM config WHERE key='max_withdrawal'", fetchone=True))[0]
+        max_wd_row = await db_query("SELECT value FROM config WHERE key='max_withdrawal'", fetchone=True)
+        max_wd = float(max_wd_row[0]) if max_wd_row else 10000.0
+        
         await query.message.reply_text(f"Enter Amount for {wd_type} withdrawal (Wallet: ₹{u[0]}, Max/Txn: ₹{max_wd}):")
 
     elif data in ["wd_confirm", "wd_cancel"]:
@@ -468,13 +493,13 @@ async def handle_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     except: pass
 
             elif wd_type == 'INSTANT':
-                api_url = await db_query("SELECT value FROM config WHERE key='payment_api_url'", fetchone=True)
-                if not api_url or not api_url[0]:
+                api_url_row = await db_query("SELECT value FROM config WHERE key='payment_api_url'", fetchone=True)
+                if not api_url_row or not api_url_row[0]:
                     await query.message.edit_text("❌ API not configured by admin. Refunding balance.")
                     await db_query("UPDATE users SET balance=balance+? WHERE user_id=?", (amt, user_id), commit=True)
                     return
                 
-                formatted_url = api_url[0].replace("{upi id}", u_upi).replace("{amount}", str(actual_amt))
+                formatted_url = api_url_row[0].replace("{upi id}", u_upi).replace("{amount}", str(actual_amt))
                 try:
                     resp = requests.get(formatted_url, timeout=15)
                     try:
@@ -487,7 +512,8 @@ async def handle_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     txn_id = "UNKNOWN"
                     comment = str(e)[:100]
                 
-                status_api_url = (await db_query("SELECT value FROM config WHERE key='payment_status_url'", fetchone=True))[0]
+                status_api_url_row = await db_query("SELECT value FROM config WHERE key='payment_status_url'", fetchone=True)
+                status_api_url = status_api_url_row[0] if status_api_url_row else ''
                 
                 params = {
                     'uid': user_id,
@@ -498,9 +524,8 @@ async def handle_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     'api': status_api_url
                 }
                 
-                # FIXED: Securely passes payment details to your Vercel index1.html file
                 query_string = urllib.parse.urlencode(params)
-                full_webapp_url = f"https://mini-app-1-orcin.vercel.app/index1.html?{query_string}"
+                full_webapp_url = f"https://mini-app-2-kappa.vercel.app/index1.html?{query_string}"
                 
                 btn = InlineKeyboardMarkup([[InlineKeyboardButton("🔍 Check payment status", web_app=WebAppInfo(url=full_webapp_url))]])
                 await query.message.edit_text("YOUR WITHDRAWAL IS SUCCESSFULLY PAID FROM GATEWAY ✅\n\n⚠️IF NOT RECEIVED THEN CONTACT SUPPORT", reply_markup=btn)
@@ -510,8 +535,9 @@ async def handle_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     try: await context.bot.send_message(admin, adm_msg, parse_mode="Markdown")
                     except: pass
                     
-                cur_total = float((await db_query("SELECT value FROM config WHERE key='total_wd_processed'", fetchone=True))[0])
-                await db_query("UPDATE config SET value=? WHERE key='total_wd_processed'", (str(cur_total + actual_amt),), commit=True)
+                cur_total_row = await db_query("SELECT value FROM config WHERE key='total_wd_processed'", fetchone=True)
+                cur_total = float(cur_total_row[0]) if cur_total_row else 0.0
+                await db_query("INSERT INTO config (key, value) VALUES ('total_wd_processed', ?) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value", (str(cur_total + actual_amt),), commit=True)
 
     elif data == "refer_earn":
         bot_me = await context.bot.get_me()
@@ -572,8 +598,9 @@ async def handle_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
         wd = context.bot_data.get('withdrawals', {}).pop(wid, None)
         if wd:
             if act == 'app':
-                cur_total = float((await db_query("SELECT value FROM config WHERE key='total_wd_processed'", fetchone=True))[0])
-                await db_query("UPDATE config SET value=? WHERE key='total_wd_processed'", (str(cur_total + wd['amount']),), commit=True)
+                cur_total_row = await db_query("SELECT value FROM config WHERE key='total_wd_processed'", fetchone=True)
+                cur_total = float(cur_total_row[0]) if cur_total_row else 0.0
+                await db_query("INSERT INTO config (key, value) VALUES ('total_wd_processed', ?) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value", (str(cur_total + wd['amount']),), commit=True)
                 status_msg = "APPROVED"
             else:
                 await db_query("UPDATE users SET balance=balance+? WHERE user_id=?", (wd['amount'], wd['user_id']), commit=True)
@@ -593,11 +620,18 @@ async def handle_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data == "adm_unban": context.user_data['state'] = 'ADM_UNBAN'; await query.message.reply_text("ID to unban:")
     
     elif data == "adm_tog_wd":
-        c = (await db_query("SELECT value FROM config WHERE key='withdrawal_status'", fetchone=True))[0]
-        s = 'OFF' if c == 'ON' else 'ON'; await db_query("UPDATE config SET value=? WHERE key='withdrawal_status'", (s,), commit=True); await query.message.reply_text(f"WD {s}")
+        c_row = await db_query("SELECT value FROM config WHERE key='withdrawal_status'", fetchone=True)
+        c = c_row[0] if c_row else 'ON'
+        s = 'OFF' if c == 'ON' else 'ON'
+        await db_query("INSERT INTO config (key, value) VALUES ('withdrawal_status', ?) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value", (s,), commit=True)
+        await query.message.reply_text(f"WD {s}")
+        
     elif data == "adm_tog_bot":
-        c = (await db_query("SELECT value FROM config WHERE key='bot_status'", fetchone=True))[0]
-        s = 'OFF' if c == 'ON' else 'ON'; await db_query("UPDATE config SET value=? WHERE key='bot_status'", (s,), commit=True); await query.message.reply_text(f"Bot {s}")
+        c_row = await db_query("SELECT value FROM config WHERE key='bot_status'", fetchone=True)
+        c = c_row[0] if c_row else 'ON'
+        s = 'OFF' if c == 'ON' else 'ON'
+        await db_query("INSERT INTO config (key, value) VALUES ('bot_status', ?) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value", (s,), commit=True)
+        await query.message.reply_text(f"Bot {s}")
     
     elif data == "adm_chk_bal": context.user_data['state'] = 'ADM_CHK_BAL'; await query.message.reply_text("ID:")
     elif data == "adm_mod_bal": context.user_data['state'] = 'ADM_MOD_BAL'; await query.message.reply_text("Format: `id:amt`")
@@ -673,7 +707,8 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     elif text == "💸 Withdraw":
-        wd_s = (await db_query("SELECT value FROM config WHERE key='withdrawal_status'", fetchone=True))[0]
+        wd_s_row = await db_query("SELECT value FROM config WHERE key='withdrawal_status'", fetchone=True)
+        wd_s = wd_s_row[0] if wd_s_row else 'ON'
         if wd_s == 'OFF': await update.message.reply_text("⚠️ WD OFF"); return
         
         kb = [
@@ -708,7 +743,8 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(f"✅ User {target_id} has been manually verified and can now access the bot.")
             
             try:
-                menu_text = (await db_query("SELECT value FROM config WHERE key='menu_text'", fetchone=True))[0]
+                menu_text_row = await db_query("SELECT value FROM config WHERE key='menu_text'", fetchone=True)
+                menu_text = menu_text_row[0] if menu_text_row else "Welcome to the Task Bot!"
                 await context.bot.send_message(
                     chat_id=target_id, 
                     text="✅ You have been manually verified by an Admin!\n\n" + menu_text, 
@@ -727,9 +763,15 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except: await update.message.reply_text("❌ Invalid amount format."); return
         
         u = await db_query("SELECT balance, upi_id FROM users WHERE user_id=?", (user_id,), fetchone=True)
-        min_wd = float((await db_query("SELECT value FROM config WHERE key='min_withdrawal'", fetchone=True))[0])
-        max_wd = float((await db_query("SELECT value FROM config WHERE key='max_withdrawal'", fetchone=True))[0])
-        wd_tax = float((await db_query("SELECT value FROM config WHERE key='withdrawal_tax'", fetchone=True))[0])
+        
+        min_wd_row = await db_query("SELECT value FROM config WHERE key='min_withdrawal'", fetchone=True)
+        min_wd = float(min_wd_row[0]) if min_wd_row else 10.0
+        
+        max_wd_row = await db_query("SELECT value FROM config WHERE key='max_withdrawal'", fetchone=True)
+        max_wd = float(max_wd_row[0]) if max_wd_row else 10000.0
+        
+        wd_tax_row = await db_query("SELECT value FROM config WHERE key='withdrawal_tax'", fetchone=True)
+        wd_tax = float(wd_tax_row[0]) if wd_tax_row else 0.0
         
         if amt < min_wd:
             await update.message.reply_text(f"min. Withdrawal is {min_wd} reenter amount more than min. withdrawal")
@@ -844,31 +886,36 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             await update.message.reply_text("❌ Task not found.")
 
+    # FIXED: Replaces standard UPDATE with UPSERT queries so missing DB keys auto-generate
     elif state == 'ADM_SET_API':
-        await db_query("UPDATE config SET value=? WHERE key='payment_api_url'", (text,), commit=True)
+        await db_query("INSERT INTO config (key, value) VALUES ('payment_api_url', ?) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value", (text,), commit=True)
         await update.message.reply_text("✅ Payment API Link Updated Successfully.")
         
     elif state == 'ADM_SET_STATUS_LINK':
-        await db_query("UPDATE config SET value=? WHERE key='payment_status_url'", (text,), commit=True)
+        await db_query("INSERT INTO config (key, value) VALUES ('payment_status_url', ?) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value", (text,), commit=True)
         await update.message.reply_text("✅ Payment Status Link Updated Successfully.")
 
     elif state == 'ADM_SET_MIN_WD':
         try: float(text)
         except: await update.message.reply_text("❌ Need numbers."); return
-        await db_query("UPDATE config SET value=? WHERE key='min_withdrawal'", (text,), commit=True)
+        await db_query("INSERT INTO config (key, value) VALUES ('min_withdrawal', ?) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value", (text,), commit=True)
         await update.message.reply_text("✅ Min Withdrawal Amount Updated.")
         
     elif state == 'ADM_SET_MAX_WD':
         try: float(text)
         except: await update.message.reply_text("❌ Need numbers."); return
-        await db_query("UPDATE config SET value=? WHERE key='max_withdrawal'", (text,), commit=True)
+        await db_query("INSERT INTO config (key, value) VALUES ('max_withdrawal', ?) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value", (text,), commit=True)
         await update.message.reply_text("✅ Max Withdrawal Amount Updated.")
         
     elif state == 'ADM_SET_WD_TAX':
         try: float(text)
         except: await update.message.reply_text("❌ Need numbers."); return
-        await db_query("UPDATE config SET value=? WHERE key='withdrawal_tax'", (text,), commit=True)
+        await db_query("INSERT INTO config (key, value) VALUES ('withdrawal_tax', ?) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value", (text,), commit=True)
         await update.message.reply_text("✅ Withdrawal Tax Updated.")
+        
+    elif state == 'ADM_CHG_TEXT': 
+        await db_query("INSERT INTO config (key, value) VALUES ('menu_text', ?) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value", (text,), commit=True)
+        await update.message.reply_text("✅ Menu Updated Successfully.")
 
     elif state == 'ADM_ADD_CHAN_DATA':
         if ":" in text: 
@@ -905,7 +952,6 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif state == 'ADM_MOD_BAL' and ":" in text:
         target, amt = text.split(":", 1)
         await db_query("UPDATE users SET balance=balance+? WHERE user_id=?", (float(amt), int(target)), commit=True); await update.message.reply_text("Updated.")
-    elif state == 'ADM_CHG_TEXT': await db_query("UPDATE config SET value=? WHERE key='menu_text'", (text,), commit=True); await update.message.reply_text("Menu Updated.")
 
 def main():
     app = Application.builder().token(TOKEN).post_init(setup_db).build()
