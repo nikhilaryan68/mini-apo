@@ -18,7 +18,7 @@ from aiogram.types import Message, ChatJoinRequest
 logging.basicConfig(level=logging.INFO)
 
 # Your valid Bot Token
-BOT_TOKEN = "8882985083:AAE2Hpazlkn0w__F7t5ygtANchdjJEEGF3U"
+BOT_TOKEN = "8818798304:AAG_6aYCQ6IeSE5D8Ws9HRLv1PkwFtp2WA8"
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
@@ -5423,7 +5423,7 @@ async def start_cloned_bot_worker(token: str, db_bot_id: int):
         print(f"Operational long-polling error caught inside runtime context: {polling_err}")
 
 # The authorized administrator user identifier
-OWNER_ID = 8662999892
+OWNER_ID = 8156429182
 
 @dp.message(Command("cleardata"))
 async def cmd_clear_data(message: types.Message):
