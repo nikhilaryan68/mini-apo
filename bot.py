@@ -196,14 +196,14 @@ async def get_channel_verification_keyboard():
     keyboard = []
     row = []
     for i, row_data in enumerate(channels):
-        row.append(InlineKeyboardButton(f"Join Channel {i+1}", url=row_data[0]))
+        row.append(InlineKeyboardButton(f"🔗 Join Channel {i+1}", url=row_data[0]))
         if len(row) == 2:
             keyboard.append(row)
             row = []
     if row:
         keyboard.append(row)
     
-    keyboard.append([InlineKeyboardButton("Verify Channels", callback_data="check_membership")])
+    keyboard.append([InlineKeyboardButton("✅ Verify Channels", callback_data="check_membership")])
     return InlineKeyboardMarkup(keyboard)
 
 def get_webapp_verify_keyboard(bot_username, safe_name, user_id):
@@ -215,9 +215,9 @@ def get_webapp_verify_keyboard(bot_username, safe_name, user_id):
 
 def get_main_menu_keyboard(user_id):
     keyboard = [
-        [KeyboardButton("📝 Get Task"), KeyboardButton("🤝 Sell Old Gmail")],
-        [KeyboardButton("💰 Wallet"), KeyboardButton("💸 Withdraw")],
-        [KeyboardButton("👥 Refer & Earn"), KeyboardButton("💳 Pay User")],
+        [KeyboardButton("📝 Get Task", style="success"), KeyboardButton("🤝 Sell Old Gmail", style="primary")],
+        [KeyboardButton("💰 Wallet", style="primary"), KeyboardButton("💸 Withdraw", style="danger")],
+        [KeyboardButton("👥 Refer & Earn", style="primary"), KeyboardButton("💳 Pay User", style="primary")],
         [KeyboardButton("📞 Support")]
     ]
     if user_id in ADMIN_IDS:
@@ -271,7 +271,7 @@ def get_admin_panel_keyboard():
         [InlineKeyboardButton("📥 Task Approvals", callback_data="adm_list_task_app"), InlineKeyboardButton("🏧 WD Requests", callback_data="adm_list_wd")],
         [InlineKeyboardButton("📢 Broadcast", callback_data="adm_broadcast"), InlineKeyboardButton("💬 DM User", callback_data="adm_dm")],
         [InlineKeyboardButton("🚫 Ban User", callback_data="adm_ban"), InlineKeyboardButton("🔓 Unban User", callback_data="adm_unban")],
-        [InlineKeyboardButton("Toggle Bot", callback_data="adm_tog_bot"), InlineKeyboardButton("📝 Menu Text", callback_data="adm_chg_text")],
+        [InlineKeyboardButton("🤖 Toggle Bot", callback_data="adm_tog_bot"), InlineKeyboardButton("📝 Menu Text", callback_data="adm_chg_text")],
         [InlineKeyboardButton("⚡ Toggle Instant WD", callback_data="adm_tog_inst_wd"), InlineKeyboardButton("🏦 Toggle Manual WD", callback_data="adm_tog_manu_wd")],
         [InlineKeyboardButton("📉 Min WD", callback_data="adm_min_wd"), InlineKeyboardButton("📈 Max WD", callback_data="adm_max_wd")],
         [InlineKeyboardButton("💸 WD Tax", callback_data="adm_wd_tax"), InlineKeyboardButton("🔗 Set Pay API", callback_data="adm_set_api")],
@@ -460,7 +460,7 @@ async def handle_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         adm_msg = f"TASK ID :- \"{tid}\"\n\nUSER ID :- \"{t_info[0]}\"\n\nUSERNAME :- `{t_user}`\n\nPASSWORD :- `{t_pass}`\n\nSUBMIT TIME:- \"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\""
         for admin in ADMIN_IDS:
-            try: await context.bot.send_message(admin, adm_msg, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Approve", callback_data=f"adm_app_t_{tid}"), InlineKeyboardButton("Reject", callback_data=f"adm_rej_t_{tid}")]]))
+            try: await context.bot.send_message(admin, adm_msg, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("✅ Approve", callback_data=f"adm_app_t_{tid}", style="success"), InlineKeyboardButton("❌ Reject", callback_data=f"adm_rej_t_{tid}", style="danger")]]))
             except: pass
 
     elif data.startswith(("adm_app_t_", "adm_rej_t_")):
@@ -511,13 +511,13 @@ async def handle_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await db_query("UPDATE users SET balance=balance+? WHERE user_id=?", (o_amt, ouid), commit=True)
             
             try:
-                await context.bot.send_message(ouid, f"✅ **Old Gmail Approved!**\nYour account `{o_user}` was verified successfully. ₹{o_amt} credited to your wallet.")
+                await context.bot.send_message(ouid, f"✅ **Old Gmail Approved!**\nYour account `{o_user}` was verified successfully. ₹{o_amt} credited to your wallet.", parse_mode="Markdown")
             except: pass
             await query.message.edit_text(f"✅ Old Gmail ID {oid} APPROVED.")
         else:
             await db_query("UPDATE old_mails SET status='rejected' WHERE id=?", (oid,), commit=True)
             try:
-                await context.bot.send_message(ouid, f"❌ **Old Gmail Rejected**\nYour account `{o_user}` was rejected during verification setup.")
+                await context.bot.send_message(ouid, f"❌ **Old Gmail Rejected**\nYour account `{o_user}` was rejected during verification setup.", parse_mode="Markdown")
             except: pass
             await query.message.edit_text(f"❌ Old Gmail ID {oid} REJECTED.")
 
@@ -593,7 +593,7 @@ async def handle_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 
                 adm_wd_msg = f"USER ID :- \"{user_id}\"\n\nUPI ID :- `{u_upi}`\n\nAMOUNT:- \"{amt}\"\n\nWITHDRAWAL TIME:- \"{context.bot_data['withdrawals'][wid]['time']}\""
                 for a in ADMIN_IDS:
-                    try: await context.bot.send_message(a, adm_wd_msg, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Approve", callback_data=f"adm_app_w_{wid}"), InlineKeyboardButton("Reject", callback_data=f"adm_rej_w_{wid}")]]))
+                    try: await context.bot.send_message(a, adm_wd_msg, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("✅ Approve", callback_data=f"adm_app_w_{wid}", style="success"), InlineKeyboardButton("❌ Reject", callback_data=f"adm_rej_w_{wid}", style="danger")]]))
                     except: pass
 
             elif wd_type == 'INSTANT':
@@ -686,7 +686,7 @@ async def handle_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"PASSWORD :- `{t_pass}`\n"
                 f"SUBMIT TIME:- \"{assigned_at if assigned_at else 'N/A'}\""
             )
-            await query.message.reply_text(detail_msg, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Approve", callback_data=f"adm_app_t_{tid}"), InlineKeyboardButton("Reject", callback_data=f"adm_rej_t_{tid}")]]))
+            await query.message.reply_text(detail_msg, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("✅ Approve", callback_data=f"adm_app_t_{tid}", style="success"), InlineKeyboardButton("❌ Reject", callback_data=f"adm_rej_t_{tid}", style="danger")]]))
 
     elif data == "adm_list_wd":
         w = context.bot_data.get('withdrawals', {})
@@ -702,7 +702,7 @@ async def handle_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"AMOUNT :- \"{v['amount']}\"\n"
                 f"WITHDRAWAL TIME :- \"{v['time']}\""
             )
-            await query.message.reply_text(detail_wd_msg, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("App", callback_data=f"adm_app_w_{k}"), InlineKeyboardButton("Rej", callback_data=f"adm_rej_w_{k}")]]))
+            await query.message.reply_text(detail_wd_msg, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("✅ Approve", callback_data=f"adm_app_w_{k}", style="success"), InlineKeyboardButton("❌ Reject", callback_data=f"adm_rej_w_{k}", style="danger")]]))
     
     elif data.startswith(("adm_app_w_", "adm_rej_w_")):
         parts = data.split("_")
@@ -816,10 +816,10 @@ async def handle_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"PASSWORD: `{o_pass}`"
             )
             kb = InlineKeyboardMarkup([[
-                InlineKeyboardButton("Approve", callback_data=f"adm_app_om_{oid}"),
-                InlineKeyboardButton("Reject", callback_data=f"adm_rej_om_{oid}")
+                InlineKeyboardButton("✅ Approve", callback_data=f"adm_app_om_{oid}", style="success"),
+                InlineKeyboardButton("❌ Reject", callback_data=f"adm_rej_om_{oid}", style="danger")
             ]])
-            await context.bot.send_message(chat_id=user_id, text=msg, reply_markup=kb)
+            await context.bot.send_message(chat_id=user_id, text=msg, reply_markup=kb, parse_mode="Markdown")
     
     elif data == "adm_task_status_lookup" and user_id in ADMIN_IDS: 
         context.user_data['state'] = 'ADM_LOOKUP_TASK'
@@ -970,11 +970,11 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"PASSWORD: `{o_password}`"
             )
             kb = InlineKeyboardMarkup([[
-                InlineKeyboardButton("Approve", callback_data=f"adm_app_om_{oid}"),
-                InlineKeyboardButton("Reject", callback_data=f"adm_rej_om_{oid}")
+                InlineKeyboardButton("✅ Approve", callback_data=f"adm_app_om_{oid}", style="success"),
+                InlineKeyboardButton("❌ Reject", callback_data=f"adm_rej_om_{oid}", style="danger")
             ]])
             for admin in ADMIN_IDS:
-                try: await context.bot.send_message(admin, adm_msg, reply_markup=kb)
+                try: await context.bot.send_message(admin, adm_msg, reply_markup=kb, parse_mode="Markdown")
                 except: pass
             return
 
