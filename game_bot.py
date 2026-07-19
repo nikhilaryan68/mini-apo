@@ -32,7 +32,7 @@ psycopg2.extensions.register_type(psycopg2.extensions.UNICODEARRAY)
 
 # --- Configuration ---
 # ADD YOUR NEW GAME BOT TOKEN HERE:
-TOKEN = "YOUR_GAME_BOT_TOKEN_HERE" 
+TOKEN = "8659779936:AAE5IU6UAoDuY4XNrJxiGr9JgWkT5j14cbY" 
 
 DATABASE_URL = "postgresql://postgres:nikhil2008@127.0.0.1:5432/railway"
 WEBAPP_URL = os.getenv('WEBAPP_URL', 'https://mini-app-2-kappa.vercel.app/')
