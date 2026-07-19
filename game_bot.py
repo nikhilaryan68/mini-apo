@@ -609,8 +609,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if text == "🎮 PLAY GAMES 🎮":
         kb = [
-            [InlineKeyboardButton("🎲 Dice", callback_data="play_dice"), InlineKeyboardButton("🎳 Bowling", callback_data="play_bowl")],
-            [InlineKeyboardButton("🎯 Dart", callback_data="play_dart"), InlineKeyboardButton("🎰 Wingo", callback_data="play_wingo")]
+            [InlineKeyboardButton("🎲 Dice", style="success", callback_data="play_dice"), InlineKeyboardButton("🎳 Bowling", style="success", callback_data="play_bowl")],
+            [InlineKeyboardButton("🎯 Dart", style="success", callback_data="play_dart"), InlineKeyboardButton("🎰 Wingo", style="success", callback_data="play_wingo")]
         ]
         await update.message.reply_text(
             "🎮 **Select a Game to Play!**\n\n⚠️ *Disclaimer: Neither the bot owner nor the bot will be responsible for any type of losses and profits.*",
@@ -630,7 +630,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     elif text == "💸 Withdraw":
-        kb = [[InlineKeyboardButton("⚡ Instant", callback_data="wd_instant")], [InlineKeyboardButton("🏦 Manual", callback_data="wd_manual")]]
+        kb = [[InlineKeyboardButton("⚡ Instant", style="success", callback_data="wd_instant")], [InlineKeyboardButton("🏦 Manual", style="danger", callback_data="wd_manual")]]
         await update.message.reply_text("Choose method:", reply_markup=InlineKeyboardMarkup(kb))
         return
         
@@ -703,7 +703,7 @@ FOR MORE INFO CONTACT SUPPORT !!"""
             await update.message.reply_text("⏳ Deposit submitted. Pending Admin Verification.")
             
             adm_msg = f"📥 **NEW DEPOSIT**\nID: `{did}`\nUID: `{user_id}`\nAMT: `₹{amt}`\nUTR: `{text}`\nTIME: `{get_ist_time()}`"
-            kb = InlineKeyboardMarkup([[InlineKeyboardButton("🟢 App", callback_data=f"adm_app_dep_{did}"), InlineKeyboardButton("🔴 Rej", callback_data=f"adm_rej_dep_{did}")]])
+            kb = InlineKeyboardMarkup([[InlineKeyboardButton("Approve", style="success", callback_data=f"adm_app_dep_{did}"), InlineKeyboardButton("Reject", style="danger", callback_data=f"adm_rej_dep_{did}")]])
             for a in ADMIN_IDS:
                 try: await context.bot.send_message(a, adm_msg, parse_mode="Markdown", reply_markup=kb)
                 except: pass
@@ -746,7 +746,7 @@ FOR MORE INFO CONTACT SUPPORT !!"""
             await db_query("UPDATE users SET balance=balance-? WHERE user_id=?", (amt, user_id), commit=True)
             
             context.user_data['temp_wd'] = {'amount': amt, 'actual_amount': actual, 'type': wd_type, 'upi': u[1]}
-            kb = [[InlineKeyboardButton("Confirm", callback_data="wd_confirm"), InlineKeyboardButton("🔴 Cancel", callback_data="wd_cancel")]]
+            kb = [[InlineKeyboardButton("Confirm", style="success", callback_data="wd_confirm"), InlineKeyboardButton("Cancel", style="danger", callback_data="wd_cancel")]]
             await update.message.reply_text(f"Confirm Withdraw ₹{amt} to `{u[1]}`?", reply_markup=InlineKeyboardMarkup(kb), parse_mode="Markdown")
 
         # Admin Config states
