@@ -355,8 +355,8 @@ async def handle_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
     elif data == "withdraw":
         kb = [
-            [InlineKeyboardButton("⚡ Instant Withdrawal", callback_data="wd_instant")],
-            [InlineKeyboardButton("🏦 Manual Withdrawal", callback_data="wd_manual")]
+            [InlineKeyboardButton("⚡ Instant Withdrawal", style="success", callback_data="wd_instant")],
+            [InlineKeyboardButton("🏦 Manual Withdrawal", style="danger", callback_data="wd_manual")]
         ]
         await query.message.edit_text("Choose withdrawal method:", reply_markup=InlineKeyboardMarkup(kb))
 
@@ -396,7 +396,7 @@ async def handle_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await query.message.edit_text("✅ Manual WD Requested. Wait for admin.")
                 
                 adm_msg = f"🏧 **NEW MANUAL WD**\nID: `{wid}`\nUID: `{user_id}`\nUPI: `{u_upi}`\nAMT: `{amt}`"
-                kb = InlineKeyboardMarkup([[InlineKeyboardButton("🟢 Approve", callback_data=f"adm_app_w_{wid}"), InlineKeyboardButton("🔴 Reject", callback_data=f"adm_rej_w_{wid}")]])
+                kb = InlineKeyboardMarkup([[InlineKeyboardButton("Approve", style="success", callback_data=f"adm_app_w_{wid}"), InlineKeyboardButton("Reject", style="danger", callback_data=f"adm_rej_w_{wid}")]])
                 for a in ADMIN_IDS:
                     try: await context.bot.send_message(a, adm_msg, parse_mode="Markdown", reply_markup=kb)
                     except: pass
@@ -437,7 +437,8 @@ async def handle_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.message.edit_text(f"✅ WD {wid} {status_msg}")
             
     elif data.startswith("adm_app_dep_") or data.startswith("adm_rej_dep_"):
-        act, did = data.split("_")[2], data.split("_")[3]
+        # CHANGED: [2] is now correctly [1] to grab "app" or "rej"
+        act, did = data.split("_")[1], data.split("_")[3]
         dep = await db_query("SELECT user_id, amount, status FROM deposits WHERE id=?", (int(did),), fetchone=True)
         if dep and dep[2] == 'pending':
             uid, amt = dep[0], dep[1]
