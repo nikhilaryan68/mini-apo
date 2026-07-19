@@ -167,9 +167,9 @@ def get_webapp_verify_keyboard(bot_username, safe_name, user_id):
 def get_main_menu_keyboard(user_id):
     keyboard = [
         [KeyboardButton("🎮 PLAY GAMES 🎮", style="success")],
-        [KeyboardButton("🔵 📥 Deposit"), KeyboardButton("🟣 💰 Wallet")],
-        [KeyboardButton("🔴 💸 Withdraw"), KeyboardButton("🟡 💳 Pay To User")],
-        [KeyboardButton("🔵 📊 Detailed Odds"), KeyboardButton("⚪ 📞 Support")]
+        [KeyboardButton("📥 Deposit", style="primary"), KeyboardButton("💰 Wallet", style="primary")],
+        [KeyboardButton("💸 Withdraw", style="danger"), KeyboardButton("💳 Pay To User", style="danger")],
+        [KeyboardButton("📊 Detailed Odds", style="success"), KeyboardButton("📞 Support", style="success")]
     ]
     if user_id in ADMIN_IDS:
         keyboard.append([KeyboardButton("⚙️ Admin Panel")])
@@ -293,8 +293,8 @@ async def handle_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         if game in ['dice', 'bowl', 'wingo']:
             kb = [
-                [InlineKeyboardButton("🟢 Low Difficulty", callback_data=f"diff_{game}_low")],
-                [InlineKeyboardButton("🔴 High Difficulty", callback_data=f"diff_{game}_high")],
+                [InlineKeyboardButton("Low Difficulty", style="success", callback_data=f"diff_{game}_low")],
+                [InlineKeyboardButton("High Difficulty", style="danger", callback_data=f"diff_{game}_high")],
                 [InlineKeyboardButton("❌ Cancel", callback_data="cancel_action")]
             ]
             await query.message.edit_text(f"Select Difficulty for {game.capitalize()}:", reply_markup=InlineKeyboardMarkup(kb))
@@ -607,7 +607,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message.text: return
     text = update.message.text.strip()
 
-    if text == "🟢 🎮 PLAY GAMES 🎮 🟢":
+    if text == "🎮 PLAY GAMES 🎮":
         kb = [
             [InlineKeyboardButton("🎲 Dice", callback_data="play_dice"), InlineKeyboardButton("🎳 Bowling", callback_data="play_bowl")],
             [InlineKeyboardButton("🎯 Dart", callback_data="play_dart"), InlineKeyboardButton("🎰 Wingo", callback_data="play_wingo")]
@@ -618,28 +618,28 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    elif text == "🔵 📥 Deposit":
+    elif text == "📥 Deposit":
         context.user_data['state'] = 'WAITING_DEPOSIT_AMT'
         await update.message.reply_text("💸 Enter the amount you want to deposit (e.g. 50):", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Cancel", callback_data="cancel_action")]]))
         return
 
-    elif text == "🟣 💰 Wallet":
+    elif text == "💰 Wallet":
         u = await db_query("SELECT balance, upi_id FROM users WHERE user_id=?", (user_id,), fetchone=True)
-        kb = [[InlineKeyboardButton("🔗 Link UPI", callback_data="add_upi")], [InlineKeyboardButton("💸 Withdraw", callback_data="withdraw")]]
+        kb = [[InlineKeyboardButton("🔗 Link UPI", style="success", callback_data="add_upi")], [InlineKeyboardButton("💸 Withdraw", style="danger", callback_data="withdraw")]]
         await update.message.reply_text(f"💳 **Wallet Details**\n\n🆔 Account ID: `{user_id}`\n💰 Balance: `₹{u[0]:.2f}`\n🏦 UPI: `{u[1] or 'None'}`", parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb))
         return
 
-    elif text == "🔴 💸 Withdraw":
+    elif text == "💸 Withdraw":
         kb = [[InlineKeyboardButton("⚡ Instant", callback_data="wd_instant")], [InlineKeyboardButton("🏦 Manual", callback_data="wd_manual")]]
         await update.message.reply_text("Choose method:", reply_markup=InlineKeyboardMarkup(kb))
         return
         
-    elif text == "🟡 💳 Pay To User":
+    elif text == "💳 Pay To User":
         context.user_data['state'] = 'WAITING_P2P'
         await update.message.reply_text("💸 Format -> `user_id:amount`", parse_mode="Markdown")
         return
 
-    elif text == "🔵 📊 Detailed Odds":
+    elif text == "📊 Detailed Odds":
         odds_msg = """**DICE/BOWL GAME ODDS :-**
 ODD/EVEN - 1.9X WIN
 NUMBER - 4X WIN
