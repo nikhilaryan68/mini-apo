@@ -657,7 +657,7 @@ FOR MORE INFO CONTACT SUPPORT !!"""
         await update.message.reply_text(odds_msg, parse_mode="Markdown")
         return
 
-    elif text == "⚪ 📞 Support":
+    elif text == "📞 Support":
         context.user_data['state'] = 'SUPPORT_MSG'
         await update.message.reply_text("📝 Send a message you want to send to Admins:")
         return
