@@ -166,7 +166,7 @@ def get_webapp_verify_keyboard(bot_username, safe_name, user_id):
 
 def get_main_menu_keyboard(user_id):
     keyboard = [
-        [KeyboardButton("🟢 🎮 PLAY GAMES 🎮 🟢")],
+        [KeyboardButton("🎮 PLAY GAMES 🎮", style="success")],
         [KeyboardButton("🔵 📥 Deposit"), KeyboardButton("🟣 💰 Wallet")],
         [KeyboardButton("🔴 💸 Withdraw"), KeyboardButton("🟡 💳 Pay To User")],
         [KeyboardButton("🔵 📊 Detailed Odds"), KeyboardButton("⚪ 📞 Support")]
