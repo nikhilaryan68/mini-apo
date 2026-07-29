@@ -293,8 +293,8 @@ async def handle_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         if game in ['dice', 'bowl', 'wingo']:
             kb = [
-                [InlineKeyboardButton("🟢 Low Difficulty", style="success", callback_data=f"diff_{game}_low")],
-                [InlineKeyboardButton("🔴 High Difficulty", style="danger", callback_data=f"diff_{game}_high")],
+                [InlineKeyboardButton("Low Difficulty", style="success", callback_data=f"diff_{game}_low")],
+                [InlineKeyboardButton("High Difficulty", style="danger", callback_data=f"diff_{game}_high")],
                 [InlineKeyboardButton("❌ Cancel", style="primary", callback_data="cancel_action")]
             ]
             await query.message.edit_text(f"Select Difficulty for {game.capitalize()}:", reply_markup=InlineKeyboardMarkup(kb))
@@ -612,7 +612,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message.text: return
     text = update.message.text.strip()
 
-    if text == "🟢 🎮 PLAY GAMES 🎮 🟢":
+    if text == "🎮 PLAY GAMES 🎮":
         kb = [
             [InlineKeyboardButton("🎲 Dice", style="success", callback_data="play_dice"), InlineKeyboardButton("🎳 Bowling", style="success", callback_data="play_bowl")],
             [InlineKeyboardButton("🎯 Dart", style="success", callback_data="play_dart"), InlineKeyboardButton("🎰 Wingo", style="success", callback_data="play_wingo")]
