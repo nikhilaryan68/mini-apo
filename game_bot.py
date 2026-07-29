@@ -152,17 +152,17 @@ async def get_channel_verification_keyboard():
     keyboard = []
     row = []
     for i, row_data in enumerate(channels):
-        row.append(InlineKeyboardButton(f"🔗 Join Channel {i+1}", url=row_data[0]))
+        row.append(InlineKeyboardButton(f"🔗 Join Channel {i+1}", style="primary", url=row_data[0]))
         if len(row) == 2:
             keyboard.append(row)
             row = []
     if row: keyboard.append(row)
-    keyboard.append([InlineKeyboardButton("🟢 Verify Channels", callback_data="check_membership")])
+    keyboard.append([InlineKeyboardButton("🟢 Verify Channels", style="success", callback_data="check_membership")])
     return InlineKeyboardMarkup(keyboard)
 
 def get_webapp_verify_keyboard(bot_username, safe_name, user_id):
     url = f"{WEBAPP_URL.rstrip('/')}/index.html?v={int(datetime.now().timestamp())}&bot={bot_username}&name={safe_name}&uid={user_id}"
-    return InlineKeyboardMarkup([[InlineKeyboardButton("🟢 Verify Your Device", web_app=WebAppInfo(url=url))]])
+    return InlineKeyboardMarkup([[InlineKeyboardButton("🟢 Verify Your Device", style="success", web_app=WebAppInfo(url=url))]])
 
 def get_main_menu_keyboard(user_id):
     keyboard = [
@@ -293,17 +293,17 @@ async def handle_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         if game in ['dice', 'bowl', 'wingo']:
             kb = [
-                [InlineKeyboardButton("Low Difficulty", style="success", callback_data=f"diff_{game}_low")],
-                [InlineKeyboardButton("High Difficulty", style="danger", callback_data=f"diff_{game}_high")],
-                [InlineKeyboardButton("❌ Cancel", callback_data="cancel_action")]
+                [InlineKeyboardButton("🟢 Low Difficulty", style="success", callback_data=f"diff_{game}_low")],
+                [InlineKeyboardButton("🔴 High Difficulty", style="danger", callback_data=f"diff_{game}_high")],
+                [InlineKeyboardButton("❌ Cancel", style="primary", callback_data="cancel_action")]
             ]
             await query.message.edit_text(f"Select Difficulty for {game.capitalize()}:", reply_markup=InlineKeyboardMarkup(kb))
         
         elif game == 'dart':
             kb = [
-                [InlineKeyboardButton("🔴 Red", callback_data="pick_dart_red"), InlineKeyboardButton("⚪ White", callback_data="pick_dart_white")],
-                [InlineKeyboardButton("🎯 Center", callback_data="pick_dart_center")],
-                [InlineKeyboardButton("❌ Cancel", callback_data="cancel_action")]
+                [InlineKeyboardButton("🔴 Red", style="danger", callback_data="pick_dart_red"), InlineKeyboardButton("⚪ White", style="primary", callback_data="pick_dart_white")],
+                [InlineKeyboardButton("🎯 Center", style="success", callback_data="pick_dart_center")],
+                [InlineKeyboardButton("❌ Cancel", style="danger", callback_data="cancel_action")]
             ]
             await query.message.edit_text("🎯 Select Dart Outcome Target:", reply_markup=InlineKeyboardMarkup(kb))
             
@@ -313,12 +313,12 @@ async def handle_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         if diff == "low":
             if game in ['dice', 'bowl']:
-                kb = [[InlineKeyboardButton("🔵 Odd", callback_data=f"pick_{game}_odd"), InlineKeyboardButton("🔵 Even", callback_data=f"pick_{game}_even")]]
+                kb = [[InlineKeyboardButton("Odd", style="success", callback_data=f"pick_{game}_odd"), InlineKeyboardButton("Even", style="danger", callback_data=f"pick_{game}_even")]]
                 await query.message.edit_text("Select Outcome Type:", reply_markup=InlineKeyboardMarkup(kb))
             elif game == 'wingo':
                 kb = [
-                    [InlineKeyboardButton("🔵 Odd", callback_data="pick_wingo_odd"), InlineKeyboardButton("🔵 Even", callback_data="pick_wingo_even")],
-                    [InlineKeyboardButton("🟢 Big (5-9)", callback_data="pick_wingo_big"), InlineKeyboardButton("🔴 Small (0-4)", callback_data="pick_wingo_small")]
+                    [InlineKeyboardButton("Odd", style="success", callback_data="pick_wingo_odd"), InlineKeyboardButton("Even", style="danger", callback_data="pick_wingo_even")],
+                    [InlineKeyboardButton("Big (5-9)", style="success", callback_data="pick_wingo_big"), InlineKeyboardButton("Small (0-4)", style="danger", callback_data="pick_wingo_small")]
                 ]
                 await query.message.edit_text("🎰 Wingo Low Difficulty Selection:", reply_markup=InlineKeyboardMarkup(kb))
         
@@ -416,7 +416,7 @@ async def handle_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 status_url = s_url[0] if s_url else ""
                 
                 qs = urllib.parse.urlencode({'uid': user_id, 'amt': a_amt, 'upi': u_upi, 'txnid': txn_id, 'api': status_url})
-                btn = InlineKeyboardMarkup([[InlineKeyboardButton("🔍 Check Status", web_app=WebAppInfo(url=f"{WEBAPP_URL}/index1.html?{qs}"))]])
+                btn = InlineKeyboardMarkup([[InlineKeyboardButton("🔍 Check Status", style="primary", web_app=WebAppInfo(url=f"{WEBAPP_URL}/index1.html?{qs}"))]])
                 await query.message.edit_text("YOUR WITHDRAWAL IS PAID ✅", reply_markup=btn)
 
     # --- Admin Callbacks ---
@@ -437,7 +437,6 @@ async def handle_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.message.edit_text(f"✅ WD {wid} {status_msg}")
             
     elif data.startswith("adm_app_dep_") or data.startswith("adm_rej_dep_"):
-        # CHANGED: [2] is now correctly [1] to grab "app" or "rej"
         act, did = data.split("_")[1], data.split("_")[3]
         dep = await db_query("SELECT user_id, amount, status FROM deposits WHERE id=?", (int(did),), fetchone=True)
         if dep and dep[2] == 'pending':
@@ -472,14 +471,14 @@ async def handle_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
             w = context.bot_data.get('withdrawals', {})
             if not w: return await query.message.reply_text("No pending WDs.")
             for k, v in w.items():
-                kb = InlineKeyboardMarkup([[InlineKeyboardButton("🟢 App", callback_data=f"adm_app_w_{k}"), InlineKeyboardButton("🔴 Rej", callback_data=f"adm_rej_w_{k}")]])
+                kb = InlineKeyboardMarkup([[InlineKeyboardButton("App", style="success", callback_data=f"adm_app_w_{k}"), InlineKeyboardButton("Rej", style="danger", callback_data=f"adm_rej_w_{k}")]])
                 await query.message.reply_text(f"ID: `{k}`\nUID: {v['user_id']}\nAmt: ₹{v['amount']}\nUPI: `{v['upi']}`", reply_markup=kb, parse_mode="Markdown")
                 
         elif data == "adm_list_dep":
             deps = await db_query("SELECT id, user_id, amount, utr, created_at FROM deposits WHERE status='pending'", fetchall=True)
             if not deps: return await query.message.reply_text("No pending deposits.")
             for d in deps:
-                kb = InlineKeyboardMarkup([[InlineKeyboardButton("🟢 App", callback_data=f"adm_app_dep_{d[0]}"), InlineKeyboardButton("🔴 Rej", callback_data=f"adm_rej_dep_{d[0]}")]])
+                kb = InlineKeyboardMarkup([[InlineKeyboardButton("App", style="success", callback_data=f"adm_app_dep_{d[0]}"), InlineKeyboardButton("Rej", style="danger", callback_data=f"adm_rej_dep_{d[0]}")]])
                 await query.message.reply_text(f"DEP ID: `{d[0]}`\nUID: {d[1]}\nAmt: ₹{d[2]}\nUTR: `{d[3]}`\nTime: {d[4]}", reply_markup=kb, parse_mode="Markdown")
 
         elif data.startswith("adm_tog_"):
@@ -523,14 +522,19 @@ async def execute_game_logic(update: Update, context: ContextTypes.DEFAULT_TYPE,
     elif game == 'bowl':
         msg = await context.bot.send_dice(chat_id, emoji='🎳')
         await asyncio.sleep(4)
-        val = msg.dice.value # 1-6
+        
+        raw_val = msg.dice.value 
+        # FIX: Telegram's visual bowling animation does not map linearly to 1-6. 
+        # 1=6 pins left, 2=5 left, 3=3 left, 4=2 left, 5=1 left, 6=0 left (Strike).
+        pins_map = {1: 6, 2: 5, 3: 3, 4: 2, 5: 1, 6: 0}
+        pins_left = pins_map.get(raw_val, 0)
         
         if game_data['diff'] == 'low':
             payout_mult = 1.9
-            win = (choice == 'even' and val % 2 == 0) or (choice == 'odd' and val % 2 != 0)
+            win = (choice == 'even' and pins_left % 2 == 0) or (choice == 'odd' and pins_left % 2 != 0)
         else:
             payout_mult = 4.0
-            win = (str(val) == choice)
+            win = (str(raw_val) == choice)
             
     elif game == 'dart':
         msg = await context.bot.send_dice(chat_id, emoji='🎯')
@@ -542,10 +546,10 @@ async def execute_game_logic(update: Update, context: ContextTypes.DEFAULT_TYPE,
             win = (val == 6)
         elif choice == 'red':
             payout_mult = 1.8
-            win = (val in [2, 4]) # Fixed logic mapping!
+            win = (val in [3, 5]) 
         elif choice == 'white':
             payout_mult = 1.8
-            win = (val in [3, 5]) # Fixed logic mapping!
+            win = (val in [2, 4]) 
 
     elif game == 'wingo':
         await context.bot.send_message(chat_id, "🎰 Drawing Wingo Result...")
@@ -608,7 +612,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message.text: return
     text = update.message.text.strip()
 
-    if text == "🎮 PLAY GAMES 🎮":
+    if text == "🟢 🎮 PLAY GAMES 🎮 🟢":
         kb = [
             [InlineKeyboardButton("🎲 Dice", style="success", callback_data="play_dice"), InlineKeyboardButton("🎳 Bowling", style="success", callback_data="play_bowl")],
             [InlineKeyboardButton("🎯 Dart", style="success", callback_data="play_dart"), InlineKeyboardButton("🎰 Wingo", style="success", callback_data="play_wingo")]
@@ -621,7 +625,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     elif text == "📥 Deposit":
         context.user_data['state'] = 'WAITING_DEPOSIT_AMT'
-        await update.message.reply_text("💸 Enter the amount you want to deposit (e.g. 50):", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Cancel", callback_data="cancel_action")]]))
+        await update.message.reply_text("💸 Enter the amount you want to deposit (e.g. 50):", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Cancel", style="danger", callback_data="cancel_action")]]))
         return
 
     elif text == "💰 Wallet":
@@ -791,7 +795,6 @@ def main():
     app = Application.builder().token(TOKEN).post_init(setup_db).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CallbackQueryHandler(handle_callbacks))
-    # Added filters.PHOTO here so the bot accepts the QR Code picture uploads!
     app.add_handler(MessageHandler((filters.TEXT | filters.PHOTO) & ~filters.COMMAND, handle_message))
     app.run_polling()
 
