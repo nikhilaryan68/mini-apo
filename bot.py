@@ -31,7 +31,7 @@ psycopg2.extensions.register_type(psycopg2.extensions.UNICODE)
 psycopg2.extensions.register_type(psycopg2.extensions.UNICODEARRAY)
 
 # --- Configuration ---
-TOKEN = "8394044106:AAG9YFymNxxtvgq-ml_CPr05uhReBNiD2xk"
+TOKEN = "8768044266:AAE7_6Z4ZVFXLHNJdqvCfXAAsxgaXpHjNgg"
 if not TOKEN:
     raise ValueError("No BOT_TOKEN provided in environment variables!")
 
@@ -42,7 +42,7 @@ if not DATABASE_URL:
 # Vercel WebApp Links
 WEBAPP_URL = os.getenv('WEBAPP_URL', 'https://mini-app-2-kappa.vercel.app/')
 
-admin_ids_raw = os.getenv('ADMIN_IDS', '6197579049')
+admin_ids_raw = os.getenv('ADMIN_IDS', '8463716212')
 ADMIN_IDS = [int(x.strip()) for x in admin_ids_raw.split(',') if x.strip().isdigit()]
 
 # --- Logging Setup ---
