@@ -62,6 +62,45 @@ def generate_password():
     nums = str(random.randint(100, 999))
     return f"{word}@{nums}"
 
+# --- Background Tasks for Admins (Prevents Freezing) ---
+async def background_broadcast(bot, admin_id, text, users):
+    success = 0
+    blocked = 0
+    for u in users:
+        try:
+            await bot.send_message(u[0], f"📢 **Announcement**\n\n{text}", parse_mode="Markdown")
+            success += 1
+        except Exception:
+            blocked += 1
+        await asyncio.sleep(0.05) # Prevent flood limits
+    
+    report = f"✅ **Broadcast Completed**\n\n📢 Successfully sent to: `{success}` users\n🚫 Blocked/Failed: `{blocked}` users"
+    try:
+        await bot.send_message(admin_id, report, parse_mode="Markdown")
+    except:
+        pass
+
+async def background_stats(bot, admin_id):
+    try:
+        total_u = (await db_query("SELECT COUNT(*) FROM users", fetchone=True))[0]
+        total_t = (await db_query("SELECT COUNT(*) FROM tasks WHERE status='completed'", fetchone=True))[0]
+        total_wd_row = await db_query("SELECT value FROM config WHERE key='total_wd_processed'", fetchone=True)
+        total_wd = total_wd_row[0] if total_wd_row else '0'
+        
+        verified_u = 0
+        all_u = await db_query("SELECT user_id FROM users", fetchall=True)
+        for u in all_u:
+            if await check_user_joined_channels(bot, u[0]): 
+                verified_u += 1
+            await asyncio.sleep(0.05) # Prevent flood limits while checking channels
+            
+        stats_msg = f"Total users in bot :- \"{total_u}\"\n\nTotal verified users :- \"{verified_u}\"\n\nTotal withdrawal:- \"₹{total_wd}\"\n\nTotal tasks completed:- \"{total_t}\""
+        await bot.send_message(admin_id, stats_msg)
+    except Exception as e:
+        logger.error(f"Stats generation error: {e}")
+        try: await bot.send_message(admin_id, "❌ Error generating stats.")
+        except: pass
+
 # --- Database Pool Setup ---
 db_pool = None
 
@@ -122,6 +161,7 @@ async def init_db():
             await set_config('withdrawal_tax', '0', init=True)
             await set_config('task_price', '15', init=True)
             await set_config('old_mail_amount', '50', init=True)
+            await set_config('leaderboard_prizes', '1:500\n2:300\n3:150\n4:100\n5:50', init=True)
 
 async def setup_db(application: Application):
     global db_pool
@@ -174,6 +214,16 @@ async def set_channel(chat_id, invite_link):
     else:
         await db_query("INSERT INTO channels (chat_id, invite_link) VALUES (?, ?)", (chat_id, invite_link), commit=True)
 
+async def reset_task_password(tid):
+    t = await db_query("SELECT task_data FROM tasks WHERE id=?", (tid,), fetchone=True)
+    if t and t[0]:
+        try:
+            username = t[0].split(":")[0]
+            new_pass = generate_password()
+            await db_query("UPDATE tasks SET task_data=? WHERE id=?", (f"{username}:{new_pass}", tid), commit=True)
+        except:
+            pass
+
 async def check_user_joined_channels(bot, user_id):
     channels = await db_query("SELECT chat_id FROM channels", fetchall=True)
     if not channels: return True
@@ -191,20 +241,20 @@ async def get_channel_verification_keyboard():
     keyboard = []
     row = []
     for i, row_data in enumerate(channels):
-        row.append(InlineKeyboardButton(f"🔗 Join Channel {i+1}", url=row_data[0]))
+        row.append(InlineKeyboardButton(f"🔗 Join Channel {i+1}", style="primary", url=row_data[0]))
         if len(row) == 2:
             keyboard.append(row)
             row = []
     if row:
         keyboard.append(row)
     
-    keyboard.append([InlineKeyboardButton("✅ Verify Channels", callback_data="check_membership")])
+    keyboard.append([InlineKeyboardButton("✅ Verify Channels", style="success", callback_data="check_membership")])
     return InlineKeyboardMarkup(keyboard)
 
 def get_webapp_verify_keyboard(bot_username, safe_name, user_id):
     cache_buster_url = f"{WEBAPP_URL.rstrip('/')}/index.html?v={int(datetime.now().timestamp())}&bot={bot_username}&name={safe_name}&uid={user_id}"
     keyboard = [
-        [InlineKeyboardButton("✅ Verify Your Device", web_app=WebAppInfo(url=cache_buster_url))]
+        [InlineKeyboardButton("✅ Verify Your Device", style="success", web_app=WebAppInfo(url=cache_buster_url))]
     ]
     return InlineKeyboardMarkup(keyboard)
 
@@ -212,7 +262,7 @@ def get_main_menu_keyboard(user_id):
     keyboard = [
         [KeyboardButton("📝 Get Task", style="success"), KeyboardButton("🤝 Sell Old Gmail", style="success")],
         [KeyboardButton("💰 Wallet", style="primary"), KeyboardButton("💸 Withdraw", style="primary")],
-        [KeyboardButton("👥 Refer & Earn", style="danger"), KeyboardButton("💳 Pay User", style="danger")],
+        [KeyboardButton("🏆 Leaderboard", style="danger"), KeyboardButton("💳 Pay User", style="danger")],
         [KeyboardButton("📞 Support", style="primary")]
     ]
     if user_id in ADMIN_IDS:
@@ -271,18 +321,20 @@ def get_admin_panel_keyboard():
         [InlineKeyboardButton("📉 Min WD", callback_data="adm_min_wd"), InlineKeyboardButton("📈 Max WD", callback_data="adm_max_wd")],
         [InlineKeyboardButton("💸 WD Tax", callback_data="adm_wd_tax"), InlineKeyboardButton("🔗 Set Pay API", callback_data="adm_set_api")],
         [InlineKeyboardButton("🔗 Set Status Link", callback_data="adm_set_status_link"), InlineKeyboardButton("✅ Verify User", callback_data="adm_verify_user")],
-        [InlineKeyboardButton("🏷️ Edit Task Price", callback_data="adm_set_task_price"), InlineKeyboardButton("💰 Old Mail Amount", callback_data="adm_set_old_mail_amt")],
-        [InlineKeyboardButton("📥 Pending Old Mails", callback_data="adm_list_old_mails"), InlineKeyboardButton("📢 Manage Channels", callback_data="adm_manage_channels")],
-        [InlineKeyboardButton("🪙 Check Balance", callback_data="adm_chk_bal"), InlineKeyboardButton("💳 Mod Balance", callback_data="adm_mod_bal")],
-        [InlineKeyboardButton("🏆 Top 10 Bal", callback_data="adm_top_bal"), InlineKeyboardButton("📊 Task Checkup", callback_data="adm_task_checkup")],
-        [InlineKeyboardButton("🔍 Task Lookup", callback_data="adm_task_status_lookup"), InlineKeyboardButton("⏪ Task Pullback", callback_data="adm_task_pullback")],
-        [InlineKeyboardButton("📊 Bot Stats", callback_data="adm_stats"), InlineKeyboardButton("❌ Close", callback_data="main_menu")]
+        [InlineKeyboardButton("🏷️ Edit Task Price", callback_data="adm_set_task_price"), InlineKeyboardButton("🎁 Prize Setup", callback_data="adm_prize_setup")],
+        [InlineKeyboardButton("💰 Old Mail Amount", callback_data="adm_set_old_mail_amt"), InlineKeyboardButton("📥 Pending Old Mails", callback_data="adm_list_old_mails")],
+        [InlineKeyboardButton("📢 Manage Channels", callback_data="adm_manage_channels"), InlineKeyboardButton("🪙 Check Balance", callback_data="adm_chk_bal")],
+        [InlineKeyboardButton("💳 Mod Balance", callback_data="adm_mod_bal"), InlineKeyboardButton("🏆 Top 10 Bal", callback_data="adm_top_bal")],
+        [InlineKeyboardButton("📊 Task Checkup", callback_data="adm_task_checkup"), InlineKeyboardButton("🔍 Task Lookup", callback_data="adm_task_status_lookup")],
+        [InlineKeyboardButton("⏪ Task Pullback", callback_data="adm_task_pullback"), InlineKeyboardButton("📊 Bot Stats", callback_data="adm_stats")],
+        [InlineKeyboardButton("❌ Close", callback_data="main_menu")]
     ])
 
 async def task_timeout_monitor(context: ContextTypes.DEFAULT_TYPE):
     cutoff = (datetime.now() - timedelta(minutes=30)).isoformat()
     expired = await db_query("SELECT id, assigned_to, message_id FROM tasks WHERE status = 'assigned' AND assigned_at < ?", (cutoff,), fetchall=True)
     for tid, uid, mid in expired:
+        await reset_task_password(tid) # Regenerate password on timeout
         await db_query("UPDATE tasks SET status = 'available', assigned_to = NULL, assigned_at = NULL, message_id = NULL WHERE id = ?", (tid,), commit=True)
         if mid:
             try: await context.bot.delete_message(chat_id=uid, message_id=mid)
@@ -392,17 +444,8 @@ async def handle_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.message.reply_text("Enter User ID to manually verify:")
 
     elif data == "adm_stats" and user_id in ADMIN_IDS:
-        total_u = (await db_query("SELECT COUNT(*) FROM users", fetchone=True))[0]
-        total_t = (await db_query("SELECT COUNT(*) FROM tasks WHERE status='completed'", fetchone=True))[0]
-        total_wd_row = await db_query("SELECT value FROM config WHERE key='total_wd_processed'", fetchone=True)
-        total_wd = total_wd_row[0] if total_wd_row else '0'
-        
-        verified_u = 0
-        all_u = await db_query("SELECT user_id FROM users", fetchall=True)
-        for u in all_u:
-            if await check_user_joined_channels(context.bot, u[0]): verified_u += 1
-        stats_msg = f"Total users in bot :- \"{total_u}\"\n\nTotal verified users :- \"{verified_u}\"\n\nTotal withdrawal:- \"₹{total_wd}\"\n\nTotal tasks completed:- \"{total_t}\""
-        await query.message.reply_text(stats_msg)
+        await query.message.reply_text("⏳ Generating stats in the background... This may take a minute or two. You will receive a message when it's ready.")
+        asyncio.create_task(background_stats(context.bot, user_id))
     
     elif data == "main_menu":
         menu_text_row = await db_query("SELECT value FROM config WHERE key='menu_text'", fetchone=True)
@@ -425,7 +468,7 @@ async def handle_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except: await update.message.reply_text("⚠️ Task Error."); return
         
         msg_text = f"TASK ID :- \"{tid}\"\n\nUSERNAME :- `{t_user}`\n\nPASSWORD :- `{t_pass}`\n\nTASK TIMEOUT IN 30MINS."
-        sent_msg = await update.message.reply_text(msg_text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("✅ Submit", style="success", callback_data=f"subm_t_{tid}"), InlineKeyboardButton("❌ Cancel", syle="danger", callback_data=f"canc_t_{tid}")]]))
+        sent_msg = await update.message.reply_text(msg_text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("✅ Submit", style="success", callback_data=f"subm_t_{tid}"), InlineKeyboardButton("❌ Cancel", style="danger", callback_data=f"canc_t_{tid}")]]))
         
         await db_query("UPDATE tasks SET status = 'assigned', assigned_to = ?, assigned_at = ?, message_id = ? WHERE id = ?", (user_id, datetime.now().isoformat(), sent_msg.message_id, tid), commit=True)
 
@@ -436,6 +479,7 @@ async def handle_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
             try: await context.bot.delete_message(chat_id=user_id, message_id=t[0])
             except: pass
             
+        await reset_task_password(tid) # Regenerate password on cancel
         await db_query("UPDATE tasks SET status='available', assigned_to=NULL, assigned_at=NULL, message_id=NULL WHERE id=? AND assigned_to=?", (tid, user_id), commit=True)
         try: await query.message.edit_text("❌ Task canceled. It is now back in the public queue.")
         except: await context.bot.send_message(user_id, "❌ Task canceled. It is now back in the public queue.")
@@ -465,13 +509,16 @@ async def handle_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
         uid = uid_row[0] if uid_row else None
         
         if act == 'app':
-            await db_query("UPDATE tasks SET status='completed' WHERE id=?", (tid,), commit=True)
+            # Updates assigned_at to the exact completion time to ensure accuracy for the monthly leaderboard
+            completion_time = datetime.now(timezone(timedelta(hours=5, minutes=30))).isoformat()
+            await db_query("UPDATE tasks SET status='completed', assigned_at=? WHERE id=?", (completion_time, tid), commit=True)
             if uid:
                 t_pr_row = await db_query("SELECT value FROM config WHERE key='task_price'", fetchone=True)
                 t_pr = float(t_pr_row[0]) if t_pr_row else 15.0
                 await db_query("UPDATE users SET balance=balance+? WHERE user_id=?", (t_pr, uid), commit=True)
             status_msg = "APPROVED"
         else:
+            await reset_task_password(tid) # Regenerate password on admin rejection
             await db_query("UPDATE tasks SET status='available', assigned_to=NULL, assigned_at=NULL, message_id=NULL WHERE id=?", (tid,), commit=True)
             status_msg = "REJECTED"
         
@@ -515,7 +562,7 @@ async def handle_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     elif data == "wallet":
         u = await db_query("SELECT balance, upi_id FROM users WHERE user_id=?", (user_id,), fetchone=True)
-        await query.message.edit_text(f"💳 Balance: ₹{u[0]:.2f}\nUPI: `{u[1] or 'None'}`", parse_mode="Markdown", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔗 Link UPI", callback_data="add_upi")], [InlineKeyboardButton("💸 Withdraw", callback_data="withdraw")], [InlineKeyboardButton("⬅️ Back", callback_data="main_menu")]]))
+        await query.message.edit_text(f"💳 Balance: ₹{u[0]:.2f}\nUPI: `{u[1] or 'None'}`", parse_mode="Markdown", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔗 Link UPI", style="success", callback_data="add_upi")], [InlineKeyboardButton("💸 Withdraw", style="danger", callback_data="withdraw")], [InlineKeyboardButton("⬅️ Back", style="primary", callback_data="main_menu")]]))
     
     elif data == "add_upi": 
         context.user_data['state'] = 'WAITING_UPI'
@@ -523,9 +570,9 @@ async def handle_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     elif data == "withdraw": 
         kb = [
-            [InlineKeyboardButton("⚡ Instant Withdrawal", callback_data="wd_instant")],
-            [InlineKeyboardButton("🏦 Manual Withdrawal", callback_data="wd_manual")],
-            [InlineKeyboardButton("⬅️ Back", callback_data="wallet")]
+            [InlineKeyboardButton("⚡ Instant Withdrawal", style="success", callback_data="wd_instant")],
+            [InlineKeyboardButton("🏦 Manual Withdrawal", style="danger", callback_data="wd_manual")],
+            [InlineKeyboardButton("⬅️ Back", style="primary", callback_data="wallet")]
         ]
         await query.message.edit_text("Select Withdrawal Method:", reply_markup=InlineKeyboardMarkup(kb))
         
@@ -635,14 +682,77 @@ async def handle_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 cur_total = float(cur_total_row[0]) if cur_total_row else 0.0
                 await set_config('total_wd_processed', str(cur_total + actual_amt))
 
-    elif data == "refer_earn":
-        bot_me = await context.bot.get_me()
-        c = (await db_query("SELECT COUNT(*) FROM users WHERE referred_by=?", (user_id,), fetchone=True))[0]
-        await query.message.edit_text(f"👥 Referrals: {c}\nLink: `t.me/{bot_me.username}?start={user_id}`", parse_mode="Markdown", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="main_menu")]]))
-    
+    # --- LEADERBOARD & PRIZE SYSTEM ---
+    elif data == "lb_show":
+        ist_now = datetime.now(timezone(timedelta(hours=5, minutes=30)))
+        current_ym = ist_now.strftime('%Y-%m')
+        current_month_name = ist_now.strftime('%B')
+        
+        tks = await db_query("SELECT assigned_to, COUNT(*) as c FROM tasks WHERE status='completed' AND assigned_at LIKE ? GROUP BY assigned_to ORDER BY c DESC", (f"{current_ym}%",), fetchall=True)
+        
+        rank_msg = f"🏆 **Leaderboard month :- {current_month_name}**\n\n"
+        medals = ["🥇", "🥈", "🥉", "🏅", "🏅", "🏅", "🏅", "🏅", "🏅", "🏅"]
+        
+        user_rank = "N/A"
+        user_tasks = 0
+        
+        for idx, row in enumerate(tks):
+            uid, count = row
+            if uid == user_id:
+                user_rank = idx + 1
+                user_tasks = count
+            
+            if idx < 10:
+                uid_str = str(uid)
+                hidden_id = uid_str[:3] + "XXX" + uid_str[-4:] if len(uid_str) >= 7 else "XXX"
+                medal = medals[idx] if idx < 10 else "🏅"
+                rank_msg += f"{medal} {idx+1}. `{hidden_id}` - {count} tasks\n"
+        
+        if not tks:
+            rank_msg += "No tasks completed yet this month.\n"
+            
+        rank_msg += f"\n🎯 **Your rank :- {user_rank}**\n✅ **Task done by you :- {user_tasks}**"
+        
+        await query.message.edit_text(rank_msg, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="back_to_lb_menu")]]))
+
+    elif data == "lb_prizes":
+        prizes_row = await db_query("SELECT value FROM config WHERE key='leaderboard_prizes'", fetchone=True)
+        prizes_text = prizes_row[0] if prizes_row else ""
+        
+        msg = "🎁 **Monthly leaderboard prizes details :-**\n\n"
+        if prizes_text:
+            for line in prizes_text.strip().split('\n'):
+                if ':' in line:
+                    rank, amt = line.split(':', 1)
+                    rank = rank.strip()
+                    
+                    if rank.endswith('1') and not rank.endswith('11'): sfx = 'st'
+                    elif rank.endswith('2') and not rank.endswith('12'): sfx = 'nd'
+                    elif rank.endswith('3') and not rank.endswith('13'): sfx = 'rd'
+                    else: sfx = 'th'
+                    
+                    msg += f"🏆 {rank}{sfx} prize :- {amt.strip()}\n\n"
+        else:
+            msg += "Prizes not set up yet.\n\n"
+            
+        msg += "📞 **For more details contact :- @HACKER_X_OWNER**"
+        
+        await query.message.edit_text(msg, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="back_to_lb_menu")]]))
+        
+    elif data == "back_to_lb_menu":
+        kb = [
+            [InlineKeyboardButton("🏅 Select Leaderboard", style="success", callback_data="lb_show")],
+            [InlineKeyboardButton("🎁 Select Prizes", style="success", callback_data="lb_prizes")]
+        ]
+        await query.message.edit_text("🏆 **Leaderboard Menu**\nChoose an option below:", reply_markup=InlineKeyboardMarkup(kb), parse_mode="Markdown")
+
+    elif data == "adm_prize_setup" and user_id in ADMIN_IDS:
+        context.user_data['state'] = 'ADM_PRIZE_SETUP'
+        await query.message.reply_text("Enter Monthly Leaderboard Prizes in format:\n1:amount\n2:amount\n3:amount\n...\n\n(Example:\n1:1000\n2:500\n3:200)")
+
     elif data == "adm_bulk": 
         context.user_data['state'] = 'ADM_WAITING_BULK'
-        await query.message.reply_text("Format: `u,u,u,...` (Usernames separated by comma)")
+        await query.message.reply_text("Format: Send a list of usernames separated by newline or comma.\nExample:\nUser1\nUser2\nUser3")
     
     elif data == "adm_pending_tasks" and user_id in ADMIN_IDS:
         tks = await db_query("SELECT id, task_data FROM tasks WHERE status='available'", fetchall=True)
@@ -913,10 +1023,12 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Choose withdrawal method:", reply_markup=InlineKeyboardMarkup(kb))
         return
 
-    elif text == "👥 Refer & Earn":
-        bot_me = await context.bot.get_me()
-        c = (await db_query("SELECT COUNT(*) FROM users WHERE referred_by=?", (user_id,), fetchone=True))[0]
-        await update.message.reply_text(f"👥 Referrals: {c}\nLink: `t.me/{bot_me.username}?start={user_id}`", parse_mode="Markdown")
+    elif text == "🏆 Leaderboard":
+        kb = [
+            [InlineKeyboardButton("🏅 Select Leaderboard", callback_data="lb_show")],
+            [InlineKeyboardButton("🎁 Select Prizes", callback_data="lb_prizes")]
+        ]
+        await update.message.reply_text("🏆 **Leaderboard Menu**\nChoose an option below:", reply_markup=InlineKeyboardMarkup(kb), parse_mode="Markdown")
         return
 
     elif text == "💳 Pay User":
@@ -936,7 +1048,20 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not state: return
 
     try:
-        if state == 'WAITING_OLD_EMAIL_USER':
+        if state == 'ADM_PRIZE_SETUP' and user_id in ADMIN_IDS:
+            valid = True
+            for line in text.split('\n'):
+                if line.strip() and ':' not in line:
+                    valid = False
+            
+            if valid:
+                await set_config('leaderboard_prizes', text)
+                await update.message.reply_text("✅ Monthly Leaderboard Prizes updated successfully.")
+            else:
+                await update.message.reply_text("❌ Invalid format. Please use:\n1:amount\n2:amount\n3:amount")
+            return
+
+        elif state == 'WAITING_OLD_EMAIL_USER':
             if '@' in text:
                 await update.message.reply_text("❌ send username only without @gmail.com")
                 context.user_data['state'] = 'WAITING_OLD_EMAIL_USER' 
@@ -1139,6 +1264,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     try: await context.bot.send_message(uid, "THE TASK IS PULLED BY ADMINS PLEASE GET A NEW TASKS")
                     except: pass
                 
+                await reset_task_password(tid) # Regenerate password on admin pullback
                 await db_query("UPDATE tasks SET status='available', assigned_to=NULL, assigned_at=NULL, message_id=NULL WHERE id=?", (tid,), commit=True)
                 await update.message.reply_text(f"✅ Task pulled back successfully and reset into the queue.")
             else:
@@ -1204,18 +1330,21 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await update.message.reply_text("✅ Task deleted.")
             
         elif state == 'ADM_WAITING_BULK' and user_id in ADMIN_IDS:
-            for u in text.split(","): 
-                u = u.strip()
+            raw_text = text.replace(',', '\n')
+            lines = raw_text.split('\n')
+            count = 0
+            for line in lines:
+                u = line.strip()
                 if u:
                     p = generate_password()
                     await db_query("INSERT INTO tasks (task_data) VALUES (?)", (f"{u}:{p}",), commit=True)
-            await update.message.reply_text("✅ Bulk tasks added.")
+                    count += 1
+            await update.message.reply_text(f"✅ {count} Bulk tasks added successfully.")
 
         elif state == 'ADM_BROADCAST' and user_id in ADMIN_IDS:
-            for u in await db_query("SELECT user_id FROM users", fetchall=True):
-                try: await context.bot.send_message(u[0], f"📢 **Announcement**\n\n{text}", parse_mode="Markdown")
-                except: pass
-            await update.message.reply_text("✅ Broadcast Sent.")
+            users = await db_query("SELECT user_id FROM users", fetchall=True)
+            await update.message.reply_text(f"⏳ Broadcast started for {len(users)} users. You will receive a report once it finishes.")
+            asyncio.create_task(background_broadcast(context.bot, user_id, text, users))
                 
         elif state == 'ADM_DM' and user_id in ADMIN_IDS:
             if ":" in text:
