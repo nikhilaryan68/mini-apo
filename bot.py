@@ -468,7 +468,7 @@ async def handle_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except: await update.message.reply_text("⚠️ Task Error."); return
         
         msg_text = f"TASK ID :- \"{tid}\"\n\nUSERNAME :- `{t_user}`\n\nPASSWORD :- `{t_pass}`\n\nTASK TIMEOUT IN 30MINS."
-        sent_msg = await update.message.reply_text(msg_text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("✅ Submit", style="success", callback_data=f"subm_t_{tid}"), InlineKeyboardButton("❌ Cancel", style="danger", callback_data=f"canc_t_{tid}")]]))
+        sent_msg = await update.message.reply_text(msg_text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("✅ Submit", callback_data=f"subm_t_{tid}"), style="success", InlineKeyboardButton("❌ Cancel", callback_data=f"canc_t_{tid}", style="danger")]]))
         
         await db_query("UPDATE tasks SET status = 'assigned', assigned_to = ?, assigned_at = ?, message_id = ? WHERE id = ?", (user_id, datetime.now().isoformat(), sent_msg.message_id, tid), commit=True)
 
@@ -562,7 +562,7 @@ async def handle_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     elif data == "wallet":
         u = await db_query("SELECT balance, upi_id FROM users WHERE user_id=?", (user_id,), fetchone=True)
-        await query.message.edit_text(f"💳 Balance: ₹{u[0]:.2f}\nUPI: `{u[1] or 'None'}`", parse_mode="Markdown", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔗 Link UPI", style="success", callback_data="add_upi")], [InlineKeyboardButton("💸 Withdraw", style="danger", callback_data="withdraw")], [InlineKeyboardButton("⬅️ Back", style="primary", callback_data="main_menu")]]))
+        await query.message.edit_text(f"💳 Balance: ₹{u[0]:.2f}\nUPI: `{u[1] or 'None'}`", parse_mode="Markdown", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔗 Link UPI", callback_data="add_upi", style="success")], [InlineKeyboardButton("💸 Withdraw", callback_data="withdraw", style="danger")], [InlineKeyboardButton("⬅️ Back", callback_data="main_menu", style="primary")]]))
     
     elif data == "add_upi": 
         context.user_data['state'] = 'WAITING_UPI'
@@ -570,9 +570,9 @@ async def handle_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     elif data == "withdraw": 
         kb = [
-            [InlineKeyboardButton("⚡ Instant Withdrawal", style="success", callback_data="wd_instant")],
-            [InlineKeyboardButton("🏦 Manual Withdrawal", style="danger", callback_data="wd_manual")],
-            [InlineKeyboardButton("⬅️ Back", style="primary", callback_data="wallet")]
+            [InlineKeyboardButton("⚡ Instant Withdrawal", callback_data="wd_instant", style="success")],
+            [InlineKeyboardButton("🏦 Manual Withdrawal", callback_data="wd_manual", style="danger")],
+            [InlineKeyboardButton("⬅️ Back", callback_data="wallet", style="primary")]
         ]
         await query.message.edit_text("Select Withdrawal Method:", reply_markup=InlineKeyboardMarkup(kb))
         
@@ -713,7 +713,7 @@ async def handle_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
         rank_msg += f"\n🎯 **Your rank :- {user_rank}**\n✅ **Task done by you :- {user_tasks}**"
         
-        await query.message.edit_text(rank_msg, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="back_to_lb_menu")]]))
+        await query.message.edit_text(rank_msg, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="back_to_lb_menu", style="primary")]]))
 
     elif data == "lb_prizes":
         prizes_row = await db_query("SELECT value FROM config WHERE key='leaderboard_prizes'", fetchone=True)
@@ -737,12 +737,12 @@ async def handle_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
         msg += "📞 **For more details contact :- @HACKER_X_OWNER**"
         
-        await query.message.edit_text(msg, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="back_to_lb_menu")]]))
+        await query.message.edit_text(msg, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="back_to_lb_menu", style="primary")]]))
         
     elif data == "back_to_lb_menu":
         kb = [
-            [InlineKeyboardButton("🏅 Select Leaderboard", style="success", callback_data="lb_show")],
-            [InlineKeyboardButton("🎁 Select Prizes", style="success", callback_data="lb_prizes")]
+            [InlineKeyboardButton("🏅 Select Leaderboard", callback_data="lb_show", style="success")],
+            [InlineKeyboardButton("🎁 Select Prizes", callback_data="lb_prizes", style="success")]
         ]
         await query.message.edit_text("🏆 **Leaderboard Menu**\nChoose an option below:", reply_markup=InlineKeyboardMarkup(kb), parse_mode="Markdown")
 
