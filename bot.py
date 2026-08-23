@@ -32,8 +32,8 @@ psycopg2.extensions.register_type(psycopg2.extensions.UNICODEARRAY)
 
 # --- Configuration ---
 # PUT YOUR ORIGINAL TASK BOT TOKEN HERE:
-TOKEN = "8394044106:AAFgV8DYMePp2ID9szTaGATi11G8Wc1qJ_I"
-if not TOKEN or TOKEN == "YOUR_ORIGINAL_BOT_TOKEN_HERE":
+TOKEN = "YOUR_ORIGINAL_BOT_TOKEN_HERE"
+if not TOKEN or TOKEN == "8394044106:AAFgV8DYMePp2ID9szTaGATi11G8Wc1qJ_I":
     raise ValueError("No BOT_TOKEN provided! Please add your original token.")
 
 DATABASE_URL = "postgresql://postgres:nikhil2008@127.0.0.1:5432/railway"
@@ -162,6 +162,7 @@ async def init_db():
             await set_config('task_price', '15', init=True)
             await set_config('old_mail_amount', '50', init=True)
             await set_config('leaderboard_prizes', '1:500\n2:300\n3:150\n4:100\n5:50', init=True)
+            await set_config('auto_verify_status', 'OFF', init=True)
 
 async def setup_db(application: Application):
     global db_pool
@@ -291,6 +292,9 @@ async def get_admin_panel_text():
     m_wd_row = await db_query("SELECT value FROM config WHERE key='manual_wd_status'", fetchone=True)
     m_wd = m_wd_row[0] if m_wd_row else 'ON'
     
+    av_row = await db_query("SELECT value FROM config WHERE key='auto_verify_status'", fetchone=True)
+    av_st = av_row[0] if av_row else 'OFF'
+    
     api_link_row = await db_query("SELECT value FROM config WHERE key='payment_api_url'", fetchone=True)
     api_link = api_link_row[0] if api_link_row else ''
     
@@ -299,6 +303,7 @@ async def get_admin_panel_text():
     
     return (
         "⚙️ **Admin Panel**\n\n"
+        f"🤖 Auto-Verify: `[{av_st}]`\n"
         f"📉 Min Withdrawal: `₹{min_wd}`\n"
         f"📈 Max Withdrawal: `₹{max_wd}`\n"
         f"💸 Instant WD Tax: `₹{wd_tax}`\n"
@@ -322,12 +327,12 @@ def get_admin_panel_keyboard():
         [InlineKeyboardButton("💸 WD Tax", callback_data="adm_wd_tax"), InlineKeyboardButton("🔗 Set Pay API", callback_data="adm_set_api")],
         [InlineKeyboardButton("🔗 Set Status Link", callback_data="adm_set_status_link"), InlineKeyboardButton("✅ Verify User", callback_data="adm_verify_user")],
         [InlineKeyboardButton("🏷️ Edit Task Price", callback_data="adm_set_task_price"), InlineKeyboardButton("🎁 Prize Setup", callback_data="adm_prize_setup")],
-        [InlineKeyboardButton("💰 Old Mail Amount", callback_data="adm_set_old_mail_amt"), InlineKeyboardButton("📥 Pending Old Mails", callback_data="adm_list_old_mails")],
-        [InlineKeyboardButton("📢 Manage Channels", callback_data="adm_manage_channels"), InlineKeyboardButton("🪙 Check Balance", callback_data="adm_chk_bal")],
-        [InlineKeyboardButton("💳 Mod Balance", callback_data="adm_mod_bal"), InlineKeyboardButton("🏆 Top 10 Bal", callback_data="adm_top_bal")],
-        [InlineKeyboardButton("📊 Task Checkup", callback_data="adm_task_checkup"), InlineKeyboardButton("🔍 Task Lookup", callback_data="adm_task_status_lookup")],
-        [InlineKeyboardButton("⏪ Task Pullback", callback_data="adm_task_pullback"), InlineKeyboardButton("📊 Bot Stats", callback_data="adm_stats")],
-        [InlineKeyboardButton("❌ Close", callback_data="main_menu", style="danger")]
+        [InlineKeyboardButton("🤖 Toggle Auto-Verify", callback_data="adm_tog_av"), InlineKeyboardButton("💰 Old Mail Amount", callback_data="adm_set_old_mail_amt")],
+        [InlineKeyboardButton("📥 Pending Old Mails", callback_data="adm_list_old_mails"), InlineKeyboardButton("📢 Manage Channels", callback_data="adm_manage_channels")],
+        [InlineKeyboardButton("🪙 Check Balance", callback_data="adm_chk_bal"), InlineKeyboardButton("💳 Mod Balance", callback_data="adm_mod_bal")],
+        [InlineKeyboardButton("🏆 Top 10 Bal", callback_data="adm_top_bal"), InlineKeyboardButton("📊 Task Checkup", callback_data="adm_task_checkup")],
+        [InlineKeyboardButton("🔍 Task Lookup", callback_data="adm_task_status_lookup"), InlineKeyboardButton("⏪ Task Pullback", callback_data="adm_task_pullback")],
+        [InlineKeyboardButton("📊 Bot Stats", callback_data="adm_stats"), InlineKeyboardButton("❌ Close", callback_data="main_menu", style="danger")]
     ])
 
 async def task_timeout_monitor(context: ContextTypes.DEFAULT_TYPE):
@@ -442,6 +447,13 @@ async def handle_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data == "adm_verify_user" and user_id in ADMIN_IDS:
         context.user_data['state'] = 'ADM_VERIFY_USER'
         await query.message.reply_text("Enter User ID to manually verify:")
+        
+    elif data == "adm_tog_av" and user_id in ADMIN_IDS:
+        c_row = await db_query("SELECT value FROM config WHERE key='auto_verify_status'", fetchone=True)
+        c = c_row[0] if c_row else 'OFF'
+        s = 'OFF' if c == 'ON' else 'ON'
+        await set_config('auto_verify_status', s)
+        await query.message.edit_text(await get_admin_panel_text(), parse_mode="Markdown", reply_markup=get_admin_panel_keyboard())
 
     elif data == "adm_stats" and user_id in ADMIN_IDS:
         await query.message.reply_text("⏳ Generating stats in the background... This may take a minute or two. You will receive a message when it's ready.")
@@ -486,19 +498,78 @@ async def handle_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     elif data.startswith("subm_t_"):
         tid = int(data.split("_")[2])
-        await db_query("UPDATE tasks SET status = 'pending_approval' WHERE id = ?", (tid,), commit=True)
-        await query.message.edit_text("⏳ Submitted for approval. You can now get another task!")
+        
+        av_row = await db_query("SELECT value FROM config WHERE key='auto_verify_status'", fetchone=True)
+        av_status = av_row[0] if av_row else 'OFF'
         
         t_info = await db_query("SELECT assigned_to, task_data FROM tasks WHERE id=?", (tid,), fetchone=True)
+        if not t_info:
+            await query.message.edit_text("❌ Task not found or already processed.")
+            return
+            
+        uid = t_info[0]
         try: 
             t_user, t_pass = t_info[1].split(":")
         except: 
             t_user, t_pass = "Error", "Error"
-        
-        adm_msg = f"TASK ID :- \"{tid}\"\n\nUSER ID :- \"{t_info[0]}\"\n\nUSERNAME :- `{t_user}`\n\nPASSWORD :- `{t_pass}`\n\nSUBMIT TIME:- \"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\""
-        for admin in ADMIN_IDS:
-            try: await context.bot.send_message(admin, adm_msg, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("✅ Approve", callback_data=f"adm_app_t_{tid}", style="success"), InlineKeyboardButton("❌ Reject", callback_data=f"adm_rej_t_{tid}", style="danger")]]))
-            except: pass
+            
+        if av_status == 'ON':
+            await query.message.edit_text("⏳ Auto-verifying your Gmail account, please wait...")
+            
+            email_to_check = f"{t_user}@gmail.com"
+            api_url = f"https://api.myemailverifier.com/api/validate_single.php?apikey=05FXQPo7bT7K2ZtZ&email={email_to_check}"
+            
+            try:
+                loop = asyncio.get_event_loop()
+                resp = await loop.run_in_executor(None, lambda: requests.get(api_url, timeout=15))
+                resp_text = resp.text.lower()
+                if 'invalid' in resp_text:
+                    is_valid = False
+                elif 'valid' in resp_text:
+                    is_valid = True
+                else:
+                    is_valid = False
+            except Exception as e:
+                logger.error(f"Auto-Verify API Error: {e}")
+                is_valid = False
+                
+            if is_valid:
+                completion_time = datetime.now(timezone(timedelta(hours=5, minutes=30))).isoformat()
+                await db_query("UPDATE tasks SET status='completed', assigned_at=? WHERE id=?", (completion_time, tid), commit=True)
+                
+                t_pr_row = await db_query("SELECT value FROM config WHERE key='task_price'", fetchone=True)
+                t_pr = float(t_pr_row[0]) if t_pr_row else 15.0
+                await db_query("UPDATE users SET balance=balance+? WHERE user_id=?", (t_pr, uid), commit=True)
+                
+                try: await context.bot.send_message(uid, f"TASK ID :- \"{tid}\"\n\nSTATUS:- \"APPROVED\"\n\nREMARKS:- \"Auto-Verified by System\"")
+                except: pass
+                
+                adm_msg = f"✅ **AUTO-APPROVED TASK**\n\nTASK ID :- \"{tid}\"\nUSER ID :- \"{uid}\"\nUSERNAME :- `{t_user}`\nPASSWORD :- `{t_pass}`\nSTATUS :- `Approved`"
+                for admin in ADMIN_IDS:
+                    try: await context.bot.send_message(admin, adm_msg, parse_mode="Markdown")
+                    except: pass
+                    
+            else:
+                await reset_task_password(tid) 
+                await db_query("UPDATE tasks SET status='available', assigned_to=NULL, assigned_at=NULL, message_id=NULL WHERE id=?", (tid,), commit=True)
+                
+                try: await context.bot.send_message(uid, f"TASK ID :- \"{tid}\"\n\nSTATUS:- \"REJECTED\"\n\nREMARKS:- \"Auto-Rejected by System (Invalid Email)\"")
+                except: pass
+                
+                adm_msg = f"❌ **AUTO-REJECTED TASK**\n\nTASK ID :- \"{tid}\"\nUSER ID :- \"{uid}\"\nUSERNAME :- `{t_user}`\nPASSWORD :- `{t_pass}`\nSTATUS :- `Rejected`"
+                for admin in ADMIN_IDS:
+                    try: await context.bot.send_message(admin, adm_msg, parse_mode="Markdown")
+                    except: pass
+                    
+        else:
+            # Classic Manual Approval Flow
+            await db_query("UPDATE tasks SET status = 'pending_approval' WHERE id = ?", (tid,), commit=True)
+            await query.message.edit_text("⏳ Submitted for approval. You can now get another task!")
+            
+            adm_msg = f"TASK ID :- \"{tid}\"\n\nUSER ID :- \"{uid}\"\n\nUSERNAME :- `{t_user}`\n\nPASSWORD :- `{t_pass}`\n\nSUBMIT TIME:- \"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\""
+            for admin in ADMIN_IDS:
+                try: await context.bot.send_message(admin, adm_msg, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("✅ Approve", callback_data=f"adm_app_t_{tid}", style="success"), InlineKeyboardButton("❌ Reject", callback_data=f"adm_rej_t_{tid}", style="danger")]]))
+                except: pass
 
     elif data.startswith(("adm_app_t_", "adm_rej_t_")):
         parts = data.split("_")
