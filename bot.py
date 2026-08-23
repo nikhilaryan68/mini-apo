@@ -32,8 +32,8 @@ psycopg2.extensions.register_type(psycopg2.extensions.UNICODEARRAY)
 
 # --- Configuration ---
 # PUT YOUR ORIGINAL TASK BOT TOKEN HERE:
-TOKEN = "YOUR_ORIGINAL_BOT_TOKEN_HERE"
-if not TOKEN or TOKEN == "8394044106:AAFgV8DYMePp2ID9szTaGATi11G8Wc1qJ_I":
+TOKEN = "8394044106:AAFgV8DYMePp2ID9szTaGATi11G8Wc1qJ_I"
+if not TOKEN or TOKEN == "YOUR_ORIGINAL_BOT_TOKEN_HERE":
     raise ValueError("No BOT_TOKEN provided! Please add your original token.")
 
 DATABASE_URL = "postgresql://postgres:nikhil2008@127.0.0.1:5432/railway"
