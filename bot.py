@@ -241,20 +241,20 @@ async def get_channel_verification_keyboard():
     keyboard = []
     row = []
     for i, row_data in enumerate(channels):
-        row.append(InlineKeyboardButton(f"🔗 Join Channel {i+1}", style="primary", url=row_data[0]))
+        row.append(InlineKeyboardButton(f"🔗 Join Channel {i+1}", url=row_data[0]))
         if len(row) == 2:
             keyboard.append(row)
             row = []
     if row:
         keyboard.append(row)
     
-    keyboard.append([InlineKeyboardButton("✅ Verify Channels", style="success", callback_data="check_membership")])
+    keyboard.append([InlineKeyboardButton("✅ Verify Channels", callback_data="check_membership", style="success")])
     return InlineKeyboardMarkup(keyboard)
 
 def get_webapp_verify_keyboard(bot_username, safe_name, user_id):
     cache_buster_url = f"{WEBAPP_URL.rstrip('/')}/index.html?v={int(datetime.now().timestamp())}&bot={bot_username}&name={safe_name}&uid={user_id}"
     keyboard = [
-        [InlineKeyboardButton("✅ Verify Your Device", style="success", web_app=WebAppInfo(url=cache_buster_url))]
+        [InlineKeyboardButton("✅ Verify Your Device", web_app=WebAppInfo(url=cache_buster_url), style="success")]
     ]
     return InlineKeyboardMarkup(keyboard)
 
@@ -327,14 +327,14 @@ def get_admin_panel_keyboard():
         [InlineKeyboardButton("💳 Mod Balance", callback_data="adm_mod_bal"), InlineKeyboardButton("🏆 Top 10 Bal", callback_data="adm_top_bal")],
         [InlineKeyboardButton("📊 Task Checkup", callback_data="adm_task_checkup"), InlineKeyboardButton("🔍 Task Lookup", callback_data="adm_task_status_lookup")],
         [InlineKeyboardButton("⏪ Task Pullback", callback_data="adm_task_pullback"), InlineKeyboardButton("📊 Bot Stats", callback_data="adm_stats")],
-        [InlineKeyboardButton("❌ Close", callback_data="main_menu")]
+        [InlineKeyboardButton("❌ Close", callback_data="main_menu", style="danger")]
     ])
 
 async def task_timeout_monitor(context: ContextTypes.DEFAULT_TYPE):
     cutoff = (datetime.now() - timedelta(minutes=30)).isoformat()
     expired = await db_query("SELECT id, assigned_to, message_id FROM tasks WHERE status = 'assigned' AND assigned_at < ?", (cutoff,), fetchall=True)
     for tid, uid, mid in expired:
-        await reset_task_password(tid) # Regenerate password on timeout
+        await reset_task_password(tid) 
         await db_query("UPDATE tasks SET status = 'available', assigned_to = NULL, assigned_at = NULL, message_id = NULL WHERE id = ?", (tid,), commit=True)
         if mid:
             try: await context.bot.delete_message(chat_id=uid, message_id=mid)
@@ -479,7 +479,7 @@ async def handle_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
             try: await context.bot.delete_message(chat_id=user_id, message_id=t[0])
             except: pass
             
-        await reset_task_password(tid) # Regenerate password on cancel
+        await reset_task_password(tid) 
         await db_query("UPDATE tasks SET status='available', assigned_to=NULL, assigned_at=NULL, message_id=NULL WHERE id=? AND assigned_to=?", (tid, user_id), commit=True)
         try: await query.message.edit_text("❌ Task canceled. It is now back in the public queue.")
         except: await context.bot.send_message(user_id, "❌ Task canceled. It is now back in the public queue.")
@@ -509,7 +509,6 @@ async def handle_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
         uid = uid_row[0] if uid_row else None
         
         if act == 'app':
-            # Updates assigned_at to the exact completion time to ensure accuracy for the monthly leaderboard
             completion_time = datetime.now(timezone(timedelta(hours=5, minutes=30))).isoformat()
             await db_query("UPDATE tasks SET status='completed', assigned_at=? WHERE id=?", (completion_time, tid), commit=True)
             if uid:
@@ -518,7 +517,7 @@ async def handle_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await db_query("UPDATE users SET balance=balance+? WHERE user_id=?", (t_pr, uid), commit=True)
             status_msg = "APPROVED"
         else:
-            await reset_task_password(tid) # Regenerate password on admin rejection
+            await reset_task_password(tid) 
             await db_query("UPDATE tasks SET status='available', assigned_to=NULL, assigned_at=NULL, message_id=NULL WHERE id=?", (tid,), commit=True)
             status_msg = "REJECTED"
         
@@ -579,7 +578,6 @@ async def handle_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data in ["wd_instant", "wd_manual"]:
         wd_type = data.split('_')[1].upper()
         
-        # Check specific toggles separately
         if wd_type == 'INSTANT':
             c_check = await db_query("SELECT value FROM config WHERE key='instant_wd_status'", fetchone=True)
             if not c_check or c_check[0] == 'OFF':
@@ -713,7 +711,7 @@ async def handle_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
         rank_msg += f"\n🎯 **Your rank :- {user_rank}**\n✅ **Task done by you :- {user_tasks}**"
         
-        await query.message.edit_text(rank_msg, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="back_to_lb_menu", style="primary")]]))
+        await query.message.edit_text(rank_msg, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="back_to_lb_menu", style="danger")]]))
 
     elif data == "lb_prizes":
         prizes_row = await db_query("SELECT value FROM config WHERE key='leaderboard_prizes'", fetchone=True)
@@ -737,7 +735,7 @@ async def handle_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
         msg += "📞 **For more details contact :- @HACKER_X_OWNER**"
         
-        await query.message.edit_text(msg, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="back_to_lb_menu", style="primary")]]))
+        await query.message.edit_text(msg, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="back_to_lb_menu", style="danger")]]))
         
     elif data == "back_to_lb_menu":
         kb = [
@@ -1000,7 +998,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except: await update.message.reply_text("⚠️ Task Error."); return
         
         msg_text = f"TASK ID :- \"{tid}\"\n\nUSERNAME :- `{t_user}`\n\nPASSWORD :- `{t_pass}`\n\nTASK TIMEOUT IN 30MINS."
-        sent_msg = await update.message.reply_text(msg_text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("✅ Submit", callback_data=f"subm_t_{tid}"), InlineKeyboardButton("❌ Cancel", callback_data=f"canc_t_{tid}")]]))
+        sent_msg = await update.message.reply_text(msg_text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("✅ Submit", callback_data=f"subm_t_{tid}", style="success"), InlineKeyboardButton("❌ Cancel", callback_data=f"canc_t_{tid}", style="danger")]]))
         
         await db_query("UPDATE tasks SET status = 'assigned', assigned_to = ?, assigned_at = ?, message_id = ? WHERE id = ?", (user_id, datetime.now().isoformat(), sent_msg.message_id, tid), commit=True)
         return
@@ -1012,21 +1010,21 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     elif text == "💰 Wallet":
         u = await db_query("SELECT balance, upi_id FROM users WHERE user_id=?", (user_id,), fetchone=True)
-        await update.message.reply_text(f"💳 Balance: ₹{u[0]:.2f}\nUPI: `{u[1] or 'None'}`", parse_mode="Markdown", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔗 Link UPI", callback_data="add_upi")], [InlineKeyboardButton("💸 Withdraw", callback_data="withdraw")]]))
+        await update.message.reply_text(f"💳 Balance: ₹{u[0]:.2f}\nUPI: `{u[1] or 'None'}`", parse_mode="Markdown", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔗 Link UPI", callback_data="add_upi", style="success")], [InlineKeyboardButton("💸 Withdraw", callback_data="withdraw", style="danger")]]))
         return
 
     elif text == "💸 Withdraw":
         kb = [
-            [InlineKeyboardButton("⚡ Instant Withdrawal", callback_data="wd_instant")],
-            [InlineKeyboardButton("🏦 Manual Withdrawal", callback_data="wd_manual")]
+            [InlineKeyboardButton("⚡ Instant Withdrawal", callback_data="wd_instant", style="success")],
+            [InlineKeyboardButton("🏦 Manual Withdrawal", callback_data="wd_manual", style="danger")]
         ]
         await update.message.reply_text("Choose withdrawal method:", reply_markup=InlineKeyboardMarkup(kb))
         return
 
     elif text == "🏆 Leaderboard":
         kb = [
-            [InlineKeyboardButton("🏅 Select Leaderboard", callback_data="lb_show")],
-            [InlineKeyboardButton("🎁 Select Prizes", callback_data="lb_prizes")]
+            [InlineKeyboardButton("🏅 Select Leaderboard", callback_data="lb_show", style="success")],
+            [InlineKeyboardButton("🎁 Select Prizes", callback_data="lb_prizes", style="success")]
         ]
         await update.message.reply_text("🏆 **Leaderboard Menu**\nChoose an option below:", reply_markup=InlineKeyboardMarkup(kb), parse_mode="Markdown")
         return
@@ -1206,7 +1204,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 confirm_msg = f"⚠️ **Confirm Your Withdrawal**\n\n🏦 Linked UPI ID: `{u[1]}`\n💰 Entered Amount: `₹{amt}`"
                 if wd_type == 'INSTANT': confirm_msg += f"\n📉 Actual Amount Received (After Tax): `₹{actual_amt}`"
 
-                kb = [[InlineKeyboardButton("✅ Confirm", callback_data="wd_confirm"), InlineKeyboardButton("❌ Cancel", callback_data="wd_cancel")]]
+                kb = [[InlineKeyboardButton("✅ Confirm", callback_data="wd_confirm", style="success"), InlineKeyboardButton("❌ Cancel", callback_data="wd_cancel", style="danger")]]
                 await update.message.reply_text(confirm_msg, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb))
             else:
                 await update.message.reply_text("❌ Invalid amount or insufficient balance.")
